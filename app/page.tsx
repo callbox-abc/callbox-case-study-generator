@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useLayoutEffect } from "react";
 import { ChevronUp, Headset, TrendingUp, Building2, Settings, Megaphone, Target, Upload, FileText } from "lucide-react";
 import { extractFromFile } from "@/lib/extract";
 import {
@@ -28,6 +28,17 @@ const MUTED = "#a4a4ae";
 const MUTED_LIGHT = "#c7c8d3";
 const BORDER = "rgba(255,255,255,0.08)";
 const BORDER_STRONG = "rgba(255,255,255,0.14)";
+
+// A4 @ 96dpi (the CSS px reference browsers use for @page sizing) — every printed
+// page is exactly this box. Pagination is computed in JS against these dimensions
+// instead of relying on the browser's own print break heuristics, which proved
+// unreliable for this dark, full-bleed grid/flex layout.
+const A4_W = 794;
+const A4_H = 1123;
+const PAGE_PAD_X = 48;
+const PAGE_PAD_Y = 40;
+const CONTENT_W = A4_W - PAGE_PAD_X * 2;
+const BLOCK_GAP = 20;
 
 type Stage = "upload" | "mapping" | "edit";
 
@@ -153,6 +164,369 @@ export default function Page() {
     fontSize: 13,
     fontWeight: 500,
   };
+
+  // --- A4 pagination -------------------------------------------------
+  // Blocks are atomic units (a section header glued to its first item, or one
+  // grouped card grid) that are measured once and packed into fixed A4 pages
+  // in JS. This guarantees a section title never lands alone at the bottom of
+  // a page, card grids stay whole, and every page gets identical padding —
+  // things the browser's native print pagination could not reliably do for
+  // this dark, full-bleed layout. Hooks below must run on every render
+  // regardless of `stage`, so this lives above the early upload/mapping returns.
+  const heroNode = (
+    <div style={{ background: HERO_GRAD, color: "#fff", padding: "40px 48px 36px" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 24 }}>
+        <span
+          style={{
+            display: "inline-block",
+            background: YELLOW,
+            color: YELLOW_INK,
+            fontSize: 11,
+            fontWeight: 800,
+            letterSpacing: 1.2,
+            textTransform: "uppercase",
+            padding: "6px 14px",
+            borderRadius: 4,
+          }}
+        >
+          Case Study
+        </span>
+        <Wordmark size={20} light />
+      </div>
+
+      <div className="editable-field">
+        <EditableField
+          value={cs.title}
+          onChange={(v) => setField("title", v)}
+          placeholder="Case study title (e.g. Lead Generation for Security PaaS Firm – Denver)"
+          multiline
+          style={{ fontSize: 30, fontWeight: 800, lineHeight: 1.25, color: "#fff", maxWidth: 640 }}
+        />
+      </div>
+
+      <div style={{ height: 1, background: "rgba(255,255,255,0.14)", margin: "26px 0 22px" }} />
+
+      <HeroGrid cs={cs} keys={HERO_ROW_1} setField={setField} />
+
+      <div style={{ height: 1, background: "rgba(255,255,255,0.14)", margin: "22px 0" }} />
+
+      <HeroGrid cs={cs} keys={HERO_ROW_2} setField={setField} />
+    </div>
+  );
+
+  const statsNode = (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", background: YELLOW }}>
+      {cs.metrics.map((m, i) => (
+        <div
+          key={i}
+          style={{
+            textAlign: "center",
+            padding: "30px 18px",
+            borderRight: i < cs.metrics.length - 1 ? "1px solid rgba(0,0,0,0.12)" : "none",
+          }}
+        >
+          <div className="editable-field-dark">
+            <EditableField
+              value={m.value}
+              onChange={(v) => setMetricField(i, "value", v)}
+              placeholder="0"
+              style={{ fontSize: 32, fontWeight: 800, color: YELLOW_INK, textAlign: "center" }}
+            />
+          </div>
+          <div className="editable-field-dark">
+            <EditableField
+              value={m.label}
+              onChange={(v) => setMetricField(i, "label", v)}
+              placeholder="Metric label"
+              multiline
+              style={{ fontSize: 13, fontWeight: 600, color: YELLOW_INK, textAlign: "center" }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const goalRow = (g: string, i: number) => (
+    <div
+      key={i}
+      style={{
+        display: "flex",
+        gap: 14,
+        alignItems: "flex-start",
+        background: CARD_BG,
+        borderRadius: 8,
+        padding: "14px 18px",
+        marginBottom: 10,
+      }}
+    >
+      <div
+        style={{
+          width: 24,
+          height: 24,
+          borderRadius: "50%",
+          background: YELLOW,
+          color: YELLOW_INK,
+          fontSize: 12,
+          fontWeight: 800,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+          marginTop: 2,
+        }}
+      >
+        {i + 1}
+      </div>
+      <div className="editable-field" style={{ flex: 1 }}>
+        <EditableField
+          value={g}
+          onChange={(v) => setArrField("programGoals", i, v)}
+          placeholder="A program goal…"
+          multiline
+          style={{ fontSize: 14, lineHeight: 1.65, color: MUTED_LIGHT }}
+        />
+      </div>
+    </div>
+  );
+
+  const phaseBlock = (p: CaseStudy["howItRan"][number], pi: number, showDivider: boolean) => (
+    <div key={pi}>
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "14px 0" }}>
+        <div
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: 5,
+            background: YELLOW,
+            color: YELLOW_INK,
+            fontSize: 12,
+            fontWeight: 800,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            marginTop: 1,
+          }}
+        >
+          {pi + 1}
+        </div>
+        <div style={{ flex: 1 }}>
+          <div className="editable-field">
+            <EditableField
+              value={p.phase}
+              onChange={(v) => setPhaseField(pi, v)}
+              placeholder="Phase name"
+              style={{ fontSize: 15, fontWeight: 700, color: TEXT, marginBottom: 8 }}
+            />
+          </div>
+          {p.steps.map((s, si) => (
+            <div key={si} style={{ display: "flex", gap: 5, marginBottom: 4 }}>
+              <span style={{ color: MUTED_LIGHT, fontSize: 13.5, flexShrink: 0 }}>{si + 1}.</span>
+              <div className="editable-field" style={{ flex: 1 }}>
+                <EditableField
+                  value={s}
+                  onChange={(v) => setPhaseStep(pi, si, v)}
+                  placeholder="Step detail…"
+                  multiline
+                  style={{ fontSize: 13.5, lineHeight: 1.6, color: MUTED_LIGHT }}
+                />
+              </div>
+            </div>
+          ))}
+          <AddLink onClick={() => addPhaseStep(pi)} label="+ Add step" small />
+        </div>
+      </div>
+      {showDivider && <div style={{ height: 1, background: BORDER, margin: "4px 0" }} />}
+    </div>
+  );
+
+  const highlightCard = (h: string, i: number) => (
+    <div
+      key={i}
+      style={{
+        background: CARD_BG,
+        borderLeft: "4px solid " + YELLOW,
+        borderRadius: "0 8px 8px 0",
+        padding: "16px 20px",
+        marginBottom: 12,
+      }}
+    >
+      <div className="editable-field">
+        <EditableField
+          value={h}
+          onChange={(v) => setArrField("keyHighlights", i, v)}
+          placeholder="A key result or highlight…"
+          multiline
+          style={{ fontSize: 14, lineHeight: 1.65, color: MUTED_LIGHT }}
+        />
+      </div>
+    </div>
+  );
+
+  type FlowBlock = { id: string; node: React.ReactNode };
+  const flowBlocks: FlowBlock[] = [];
+
+  flowBlocks.push({
+    id: "snapshot",
+    node: (
+      <div>
+        <SectionLabel title="Client Snapshot" />
+        <div className="editable-field print-flow-text">
+          <EditableField
+            value={cs.clientSnapshot}
+            onChange={(v) => setField("clientSnapshot", v)}
+            placeholder="A short paragraph introducing who the client is…"
+            multiline
+            style={{ fontSize: 14.5, lineHeight: 1.75, color: MUTED_LIGHT }}
+          />
+        </div>
+      </div>
+    ),
+  });
+
+  flowBlocks.push({
+    id: "challenge",
+    node: (
+      <div>
+        <SectionLabel title="The Challenge" />
+        <div className="editable-field print-flow-text">
+          <EditableField
+            value={cs.challenge}
+            onChange={(v) => setField("challenge", v)}
+            placeholder="Describe the client's situation and challenge before Callbox got involved…"
+            multiline
+            style={{ fontSize: 14.5, lineHeight: 1.75, color: MUTED_LIGHT }}
+          />
+        </div>
+      </div>
+    ),
+  });
+
+  flowBlocks.push({
+    id: "solution",
+    node: (
+      <div>
+        <SectionLabel title="The Solution" />
+        <div className="editable-field print-flow-text" style={{ marginBottom: 18 }}>
+          <EditableField
+            value={cs.solutionIntro}
+            onChange={(v) => setField("solutionIntro", v)}
+            placeholder="How Callbox approached the solution…"
+            multiline
+            style={{ fontSize: 14.5, lineHeight: 1.75, color: MUTED_LIGHT }}
+          />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          {cs.solutionServices.map((s, i) => {
+            const Icon = SOLUTION_ICONS[i % SOLUTION_ICONS.length];
+            return (
+              <div key={i} style={{ padding: "20px 20px", background: CARD_BG, borderRadius: 10, border: "1px solid " + BORDER }}>
+                <Icon size={26} style={{ color: TEAL, marginBottom: 12, display: "block" }} />
+                <div className="editable-field">
+                  <EditableField
+                    value={s.title}
+                    onChange={(v) => setSolutionField(i, "title", v)}
+                    placeholder="Service name"
+                    multiline
+                    style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.35, color: TEXT, marginBottom: 5 }}
+                  />
+                </div>
+                <div className="editable-field">
+                  <EditableField
+                    value={s.desc}
+                    onChange={(v) => setSolutionField(i, "desc", v)}
+                    placeholder="Short description…"
+                    multiline
+                    style={{ fontSize: 13, lineHeight: 1.6, color: MUTED }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    ),
+  });
+
+  if (cs.programGoals.length === 0) {
+    flowBlocks.push({
+      id: "goals-header",
+      node: (
+        <div>
+          <SectionLabel title="Program Goals" />
+          <AddLink onClick={addGoal} label="+ Add goal" />
+        </div>
+      ),
+    });
+  } else {
+    cs.programGoals.forEach((g, i) => {
+      flowBlocks.push({
+        id: "goal-" + i,
+        node: (
+          <div>
+            {i === 0 && <SectionLabel title="Program Goals" />}
+            {goalRow(g, i)}
+            {i === cs.programGoals.length - 1 && <AddLink onClick={addGoal} label="+ Add goal" />}
+          </div>
+        ),
+      });
+    });
+  }
+
+  if (cs.howItRan.length === 0) {
+    flowBlocks.push({
+      id: "how-header",
+      node: (
+        <div>
+          <SectionLabel title="How It Ran" />
+          <AddLink onClick={addPhase} label="+ Add phase" />
+        </div>
+      ),
+    });
+  } else {
+    cs.howItRan.forEach((p, pi) => {
+      flowBlocks.push({
+        id: "how-" + pi,
+        node: (
+          <div>
+            {pi === 0 && <SectionLabel title="How It Ran" />}
+            {phaseBlock(p, pi, pi < cs.howItRan.length - 1)}
+            {pi === cs.howItRan.length - 1 && <AddLink onClick={addPhase} label="+ Add phase" />}
+          </div>
+        ),
+      });
+    });
+  }
+
+  if (cs.keyHighlights.length === 0) {
+    flowBlocks.push({
+      id: "highlights-header",
+      node: (
+        <div>
+          <SectionLabel title="Key Highlights" />
+          <AddLink onClick={addHighlight} label="+ Add highlight" />
+        </div>
+      ),
+    });
+  } else {
+    cs.keyHighlights.forEach((h, i) => {
+      flowBlocks.push({
+        id: "highlight-" + i,
+        node: (
+          <div>
+            {i === 0 && <SectionLabel title="Key Highlights" />}
+            {highlightCard(h, i)}
+            {i === cs.keyHighlights.length - 1 && <AddLink onClick={addHighlight} label="+ Add highlight" />}
+          </div>
+        ),
+      });
+    });
+  }
+
+  flowBlocks.push({ id: "footer", node: <Footer /> });
+
+  const { pages, heroRef, statsRef, blockRefsMap, heroH, statsH } = usePagedLayout(cs, flowBlocks, stage);
 
   if (stage === "upload") {
     return (
@@ -282,40 +656,24 @@ export default function Page() {
       <style>{`
         @media print {
           html, body { background: ${BG} !important; }
-          .app-toolbar, .edit-hint, .no-print { display: none !important; }
+          .app-toolbar, .edit-hint, .no-print, .page-gap { display: none !important; }
           .app-shell { background: ${BG} !important; padding: 0 !important; }
-          .print-sheet { box-shadow: none !important; margin: 0 !important; width: 100% !important; overflow: visible !important; }
           input, textarea { border: none !important; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-          /* margin: 0 everywhere — Chrome's print engine always paints the @page margin box
-             white regardless of body/CSS background, so any @page margin shows as a white
-             strip on every page. Breathing room on continuation pages is instead baked into
-             the flowing content below (Section/card margin-top), which is part of the dark
-             canvas and never shows white. */
+          /* Pages are pre-sized to exactly A4 in JS (usePagedLayout), so each .pdf-page
+             maps to exactly one printed page — no reliance on the browser's own
+             (unreliable) print break heuristics inside this dark, full-bleed layout. */
           @page { size: A4; margin: 0; }
+          .pdf-page { box-shadow: none !important; margin: 0 !important; border-radius: 0 !important; break-after: page; page-break-after: always; }
+          .pdf-page:last-child { break-after: auto; page-break-after: auto; }
           .avoid-break { break-inside: avoid !important; page-break-inside: avoid !important; }
-          .section-label { break-after: avoid !important; page-break-after: avoid !important; }
-          .print-flow-text { orphans: 3; widows: 3; }
-          .print-page-mark { display: block !important; }
-          .footer-block { break-inside: avoid !important; page-break-inside: avoid !important; }
         }
-        .print-page-mark { display: none; }
         .editable-field { transition: background 0.1s; border-radius: 4px; }
         .editable-field:hover { background: rgba(245,185,20,0.08); }
         .editable-field:focus-within { background: rgba(245,185,20,0.12); }
         .editable-field-dark:hover { background: rgba(0,0,0,0.06); }
         .editable-field-dark:focus-within { background: rgba(0,0,0,0.1); }
       `}</style>
-
-      {/* Repeats on every printed page via position: fixed */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src="/callbox-caret.svg"
-        alt=""
-        aria-hidden="true"
-        className="print-page-mark"
-        style={{ position: "fixed", bottom: 18, right: 18, width: 20, height: 20, zIndex: 9999 }}
-      />
 
       <div
         className="app-toolbar"
@@ -382,294 +740,82 @@ export default function Page() {
       </div>
 
       <div className="app-shell" style={{ padding: "24px 16px 80px", display: "flex", justifyContent: "center" }}>
-        <div
-          className="print-sheet"
-          style={{
-            width: "100%",
-            maxWidth: 900,
-            background: SHEET_BG,
-            boxShadow: "0 4px 40px rgba(0,0,0,0.5)",
-            borderRadius: 6,
-            overflow: "hidden",
-          }}
-        >
-          {/* HERO */}
-          <div style={{ background: HERO_GRAD, color: "#fff", padding: "40px 48px 36px" }}>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 24 }}>
-              <span
-                style={{
-                  display: "inline-block",
-                  background: YELLOW,
-                  color: YELLOW_INK,
-                  fontSize: 11,
-                  fontWeight: 800,
-                  letterSpacing: 1.2,
-                  textTransform: "uppercase",
-                  padding: "6px 14px",
-                  borderRadius: 4,
-                }}
-              >
-                Case Study
-              </span>
-              <Wordmark size={20} light />
-            </div>
-
-            <div className="editable-field">
-              <EditableField
-                value={cs.title}
-                onChange={(v) => setField("title", v)}
-                placeholder="Case study title (e.g. Lead Generation for Security PaaS Firm – Denver)"
-                multiline
-                style={{ fontSize: 30, fontWeight: 800, lineHeight: 1.25, color: "#fff", maxWidth: 640 }}
-              />
-            </div>
-
-            <div style={{ height: 1, background: "rgba(255,255,255,0.14)", margin: "26px 0 22px" }} />
-
-            <HeroGrid cs={cs} keys={HERO_ROW_1} setField={setField} />
-
-            <div style={{ height: 1, background: "rgba(255,255,255,0.14)", margin: "22px 0" }} />
-
-            <HeroGrid cs={cs} keys={HERO_ROW_2} setField={setField} />
-          </div>
-
-          {/* STATS */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", background: YELLOW }}>
-            {cs.metrics.map((m, i) => (
+        <div style={{ width: "100%", maxWidth: A4_W }}>
+          {pages.map((blockIds, pageIndex) => {
+            const isFirst = pageIndex === 0;
+            return (
               <div
-                key={i}
-                className="avoid-break"
+                key={pageIndex}
+                className="pdf-page"
                 style={{
-                  textAlign: "center",
-                  padding: "30px 18px",
-                  borderRight: i < cs.metrics.length - 1 ? "1px solid rgba(0,0,0,0.12)" : "none",
+                  width: A4_W,
+                  minHeight: A4_H,
+                  maxWidth: "100%",
+                  background: SHEET_BG,
+                  boxShadow: "0 4px 40px rgba(0,0,0,0.5)",
+                  borderRadius: 6,
+                  overflow: "hidden",
+                  position: "relative",
                 }}
               >
-                <div className="editable-field-dark">
-                  <EditableField
-                    value={m.value}
-                    onChange={(v) => setMetricField(i, "value", v)}
-                    placeholder="0"
-                    style={{ fontSize: 32, fontWeight: 800, color: YELLOW_INK, textAlign: "center" }}
-                  />
-                </div>
-                <div className="editable-field-dark">
-                  <EditableField
-                    value={m.label}
-                    onChange={(v) => setMetricField(i, "label", v)}
-                    placeholder="Metric label"
-                    multiline
-                    style={{ fontSize: 13, fontWeight: 600, color: YELLOW_INK, textAlign: "center" }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+                {isFirst && heroNode}
+                {isFirst && statsNode}
 
-          {/* BODY */}
-          <div style={{ padding: "40px 48px" }}>
-            <Section title="Client Snapshot">
-              <div className="editable-field print-flow-text">
-                <EditableField
-                  value={cs.clientSnapshot}
-                  onChange={(v) => setField("clientSnapshot", v)}
-                  placeholder="A short paragraph introducing who the client is…"
-                  multiline
-                  style={{ fontSize: 14.5, lineHeight: 1.75, color: MUTED_LIGHT }}
-                />
-              </div>
-            </Section>
-
-            <Section title="The Challenge">
-              <div className="editable-field print-flow-text">
-                <EditableField
-                  value={cs.challenge}
-                  onChange={(v) => setField("challenge", v)}
-                  placeholder="Describe the client's situation and challenge before Callbox got involved…"
-                  multiline
-                  style={{ fontSize: 14.5, lineHeight: 1.75, color: MUTED_LIGHT }}
-                />
-              </div>
-            </Section>
-
-            <Section title="The Solution">
-              <div className="editable-field print-flow-text" style={{ marginBottom: 18 }}>
-                <EditableField
-                  value={cs.solutionIntro}
-                  onChange={(v) => setField("solutionIntro", v)}
-                  placeholder="How Callbox approached the solution…"
-                  multiline
-                  style={{ fontSize: 14.5, lineHeight: 1.75, color: MUTED_LIGHT }}
-                />
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                {cs.solutionServices.map((s, i) => {
-                  const Icon = SOLUTION_ICONS[i % SOLUTION_ICONS.length];
-                  return (
-                    <div
-                      key={i}
-                      className="avoid-break"
-                      style={{ marginTop: 8, padding: "20px 20px", background: CARD_BG, borderRadius: 10, border: "1px solid " + BORDER }}
-                    >
-                      <Icon size={26} style={{ color: TEAL, marginBottom: 12, display: "block" }} />
-                      <div className="editable-field">
-                        <EditableField
-                          value={s.title}
-                          onChange={(v) => setSolutionField(i, "title", v)}
-                          placeholder="Service name"
-                          multiline
-                          style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.35, color: TEXT, marginBottom: 5 }}
-                        />
-                      </div>
-                      <div className="editable-field">
-                        <EditableField
-                          value={s.desc}
-                          onChange={(v) => setSolutionField(i, "desc", v)}
-                          placeholder="Short description…"
-                          multiline
-                          style={{ fontSize: 13, lineHeight: 1.6, color: MUTED }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </Section>
-
-            <Section title="Program Goals">
-              {cs.programGoals.map((g, i) => (
                 <div
-                  key={i}
-                  className="avoid-break"
                   style={{
                     display: "flex",
-                    gap: 14,
-                    alignItems: "flex-start",
-                    background: CARD_BG,
-                    borderRadius: 8,
-                    padding: "14px 18px",
-                    marginTop: 8,
-                    marginBottom: 10,
+                    flexDirection: "column",
+                    minHeight: isFirst ? Math.max(A4_H - heroH - statsH, 0) : A4_H,
+                    padding: isFirst ? `24px ${PAGE_PAD_X}px ${PAGE_PAD_Y}px` : `${PAGE_PAD_Y}px ${PAGE_PAD_X}px`,
+                    boxSizing: "border-box",
                   }}
                 >
-                  <div
-                    style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: "50%",
-                      background: YELLOW,
-                      color: YELLOW_INK,
-                      fontSize: 12,
-                      fontWeight: 800,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0,
-                      marginTop: 2,
-                    }}
-                  >
-                    {i + 1}
-                  </div>
-                  <div className="editable-field" style={{ flex: 1 }}>
-                    <EditableField
-                      value={g}
-                      onChange={(v) => setArrField("programGoals", i, v)}
-                      placeholder="A program goal…"
-                      multiline
-                      style={{ fontSize: 14, lineHeight: 1.65, color: MUTED_LIGHT }}
-                    />
-                  </div>
-                </div>
-              ))}
-              <AddLink onClick={addGoal} label="+ Add goal" />
-            </Section>
-
-            <Section title="How It Ran">
-              {cs.howItRan.map((p, pi) => (
-                <div key={pi} className="avoid-break" style={{ marginTop: 8 }}>
-                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "14px 0" }}>
-                    <div
-                      style={{
-                        width: 22,
-                        height: 22,
-                        borderRadius: 5,
-                        background: YELLOW,
-                        color: YELLOW_INK,
-                        fontSize: 12,
-                        fontWeight: 800,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        flexShrink: 0,
-                        marginTop: 1,
-                      }}
-                    >
-                      {pi + 1}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div className="editable-field">
-                        <EditableField
-                          value={p.phase}
-                          onChange={(v) => setPhaseField(pi, v)}
-                          placeholder="Phase name"
-                          style={{ fontSize: 15, fontWeight: 700, color: TEXT, marginBottom: 8 }}
-                        />
+                  {blockIds.map((id) => {
+                    const b = flowBlocks.find((fb) => fb.id === id);
+                    if (!b) return null;
+                    const isFooter = id === "footer";
+                    return (
+                      <div key={id} className="avoid-break" style={isFooter ? { marginTop: "auto" } : { marginBottom: BLOCK_GAP }}>
+                        {b.node}
                       </div>
-                      {p.steps.map((s, si) => (
-                        <div key={si} style={{ display: "flex", gap: 5, marginBottom: 4 }}>
-                          <span style={{ color: MUTED_LIGHT, fontSize: 13.5, flexShrink: 0 }}>{si + 1}.</span>
-                          <div className="editable-field" style={{ flex: 1 }}>
-                            <EditableField
-                              value={s}
-                              onChange={(v) => setPhaseStep(pi, si, v)}
-                              placeholder="Step detail…"
-                              multiline
-                              style={{ fontSize: 13.5, lineHeight: 1.6, color: MUTED_LIGHT }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                      <AddLink onClick={() => addPhaseStep(pi)} label="+ Add step" small />
-                    </div>
-                  </div>
-                  {pi < cs.howItRan.length - 1 && <div style={{ height: 1, background: BORDER, margin: "4px 0" }} />}
+                    );
+                  })}
                 </div>
-              ))}
-              <AddLink onClick={addPhase} label="+ Add phase" />
-            </Section>
 
-            <Section title="Key Highlights">
-              {cs.keyHighlights.map((h, i) => (
-                <div
-                  key={i}
-                  className="avoid-break"
-                  style={{
-                    background: CARD_BG,
-                    borderLeft: "4px solid " + YELLOW,
-                    borderRadius: "0 8px 8px 0",
-                    padding: "16px 20px",
-                    marginTop: 8,
-                    marginBottom: 12,
-                  }}
-                >
-                  <div className="editable-field">
-                    <EditableField
-                      value={h}
-                      onChange={(v) => setArrField("keyHighlights", i, v)}
-                      placeholder="A key result or highlight…"
-                      multiline
-                      style={{ fontSize: 14, lineHeight: 1.65, color: MUTED_LIGHT }}
-                    />
-                  </div>
-                </div>
-              ))}
-              <AddLink onClick={addHighlight} label="+ Add highlight" />
-            </Section>
-          </div>
+                {/* Repeats on every page — screen preview and print alike */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/callbox-caret.svg"
+                  alt=""
+                  aria-hidden="true"
+                  style={{ position: "absolute", bottom: 18, right: 18, width: 20, height: 20 }}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
-          <div className="footer-block" style={{ marginTop: 24 }}>
-            <Footer />
-          </div>
+      {/* Off-screen measurement pass — mirrors the exact blocks/widths used above so
+          usePagedLayout can read real rendered heights before committing to page breaks. */}
+      <div aria-hidden="true" style={{ position: "absolute", top: 0, left: -99999, visibility: "hidden", pointerEvents: "none" }}>
+        <div ref={heroRef} style={{ width: A4_W }}>
+          {heroNode}
+        </div>
+        <div ref={statsRef} style={{ width: A4_W }}>
+          {statsNode}
+        </div>
+        <div style={{ width: CONTENT_W }}>
+          {flowBlocks.map((b) => (
+            <div
+              key={b.id}
+              ref={(el) => {
+                if (el) blockRefsMap.current.set(b.id, el);
+              }}
+            >
+              {b.node}
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -795,30 +941,75 @@ function Footer() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function SectionLabel({ title }: { title: string }) {
   return (
-  <div style={{ marginTop: 22, marginBottom: 32 }}>
-  <span
-  className="section-label"
-        style={{
-          display: "inline-block",
-          fontSize: 11.5,
-          fontWeight: 800,
-          letterSpacing: 0.8,
-          color: YELLOW,
-          textTransform: "uppercase",
-          background: "#26272d",
-          padding: "6px 14px",
-          borderRadius: 4,
-          marginBottom: 14,
-        }}
-      >
-        {title}
-      </span>
-      {children}
-    </div>
+    <span
+      style={{
+        display: "inline-block",
+        fontSize: 11.5,
+        fontWeight: 800,
+        letterSpacing: 0.8,
+        color: YELLOW,
+        textTransform: "uppercase",
+        background: "#26272d",
+        padding: "6px 14px",
+        borderRadius: 4,
+        marginBottom: 14,
+      }}
+    >
+      {title}
+    </span>
   );
 }
+
+// Packs measured flow blocks into fixed A4 pages. Hero + stats are always the
+// top of page 1; remaining blocks fill left-to-right budget per page, never
+// splitting a block (a section header is glued to its first item/card grid).
+function usePagedLayout(cs: CaseStudy, flowBlocks: { id: string; node: React.ReactNode }[], stage: string) {
+  const heroRef = useRef<HTMLDivElement>(null);
+  const statsRef = useRef<HTMLDivElement>(null);
+  const blockRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Seed with every block already mounted on page 1 so the first layout
+  // effect measures real DOM heights instead of an empty page (which would
+  // otherwise lock in a bogus "everything fits on one page" result, since
+  // this effect never re-runs after that).
+  const [pages, setPages] = useState<string[][]>(() => [flowBlocks.map((b) => b.id)]);
+  const [heroH, setHeroH] = useState(0);
+  const [statsH, setStatsH] = useState(0);
+
+  useLayoutEffect(() => {
+    const measuredHeroH = heroRef.current?.getBoundingClientRect().height ?? 0;
+    const measuredStatsH = statsRef.current?.getBoundingClientRect().height ?? 0;
+    const CONTINUATION_BUDGET = A4_H - PAGE_PAD_Y * 2;
+
+    const result: string[][] = [[]];
+    let pageIdx = 0;
+    let budget = A4_H - measuredHeroH - measuredStatsH - 24 - PAGE_PAD_Y;
+
+    for (const b of flowBlocks) {
+      const el = blockRefsMap.current.get(b.id);
+      const h = (el?.getBoundingClientRect().height ?? 0) + BLOCK_GAP;
+      if (h > budget && result[pageIdx].length > 0) {
+        pageIdx++;
+        result[pageIdx] = [];
+        budget = CONTINUATION_BUDGET;
+      }
+      result[pageIdx].push(b.id);
+      budget -= h;
+    }
+
+    setHeroH(measuredHeroH);
+    setStatsH(measuredStatsH);
+    setPages(result);
+    // `stage` is included because the offscreen measurement DOM (heroRef,
+    // statsRef, blockRefsMap) only exists once the editor view is mounted —
+    // on first mount (stage === "upload") those refs are all empty, so this
+    // effect must re-run the instant stage flips to "editor".
+  }, [cs, flowBlocks.length, stage]);
+
+  return { pages, heroRef, statsRef, blockRefsMap, heroH, statsH };
+}
+
 function AddLink({ onClick, label, small }: { onClick: () => void; label: string; small?: boolean }) {
   return (
     <button
