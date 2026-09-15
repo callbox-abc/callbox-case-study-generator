@@ -287,11 +287,20 @@ export default function Page() {
           .print-sheet { box-shadow: none !important; margin: 0 !important; width: 100% !important; overflow: visible !important; }
           input, textarea { border: none !important; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-          @page { size: A4; margin: 0; }
+          @page { size: A4; margin: 0; margin-top: 28px; }
+          @page :first { margin-top: 0; }
           .avoid-break { break-inside: avoid !important; page-break-inside: avoid !important; }
           .section-label { break-after: avoid !important; page-break-after: avoid !important; }
           .print-flow-text { orphans: 3; widows: 3; }
           .print-page-mark { display: block !important; }
+          .footer-page-wrap {
+            break-before: page;
+            page-break-before: always;
+            min-height: calc(297mm - 28px);
+            display: flex;
+            flex-direction: column;
+          }
+          .footer-page-wrap .footer-spacer { flex: 1 1 auto; }
         }
         .print-page-mark { display: none; }
         .editable-field { transition: background 0.1s; border-radius: 4px; }
@@ -658,7 +667,10 @@ export default function Page() {
             </Section>
           </div>
 
-          <Footer />
+          <div className="footer-page-wrap">
+            <div className="footer-spacer" />
+            <Footer />
+          </div>
         </div>
       </div>
     </div>
