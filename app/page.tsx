@@ -287,20 +287,17 @@ export default function Page() {
           .print-sheet { box-shadow: none !important; margin: 0 !important; width: 100% !important; overflow: visible !important; }
           input, textarea { border: none !important; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-          @page { size: A4; margin: 0; margin-top: 28px; }
-          @page :first { margin-top: 0; }
+          /* margin: 0 everywhere — Chrome's print engine always paints the @page margin box
+             white regardless of body/CSS background, so any @page margin shows as a white
+             strip on every page. Breathing room on continuation pages is instead baked into
+             the flowing content below (Section/card margin-top), which is part of the dark
+             canvas and never shows white. */
+          @page { size: A4; margin: 0; }
           .avoid-break { break-inside: avoid !important; page-break-inside: avoid !important; }
           .section-label { break-after: avoid !important; page-break-after: avoid !important; }
           .print-flow-text { orphans: 3; widows: 3; }
           .print-page-mark { display: block !important; }
-          .footer-page-wrap {
-            break-before: page;
-            page-break-before: always;
-            min-height: calc(297mm - 28px);
-            display: flex;
-            flex-direction: column;
-          }
-          .footer-page-wrap .footer-spacer { flex: 1 1 auto; }
+          .footer-block { break-inside: avoid !important; page-break-inside: avoid !important; }
         }
         .print-page-mark { display: none; }
         .editable-field { transition: background 0.1s; border-radius: 4px; }
@@ -512,7 +509,7 @@ export default function Page() {
                     <div
                       key={i}
                       className="avoid-break"
-                      style={{ padding: "20px 20px", background: CARD_BG, borderRadius: 10, border: "1px solid " + BORDER }}
+                      style={{ marginTop: 8, padding: "20px 20px", background: CARD_BG, borderRadius: 10, border: "1px solid " + BORDER }}
                     >
                       <Icon size={26} style={{ color: TEAL, marginBottom: 12, display: "block" }} />
                       <div className="editable-field">
@@ -520,7 +517,8 @@ export default function Page() {
                           value={s.title}
                           onChange={(v) => setSolutionField(i, "title", v)}
                           placeholder="Service name"
-                          style={{ fontSize: 15, fontWeight: 700, color: TEXT, marginBottom: 5 }}
+                          multiline
+                          style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.35, color: TEXT, marginBottom: 5 }}
                         />
                       </div>
                       <div className="editable-field">
@@ -550,6 +548,7 @@ export default function Page() {
                     background: CARD_BG,
                     borderRadius: 8,
                     padding: "14px 18px",
+                    marginTop: 8,
                     marginBottom: 10,
                   }}
                 >
@@ -587,7 +586,7 @@ export default function Page() {
 
             <Section title="How It Ran">
               {cs.howItRan.map((p, pi) => (
-                <div key={pi} className="avoid-break">
+                <div key={pi} className="avoid-break" style={{ marginTop: 8 }}>
                   <div style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "14px 0" }}>
                     <div
                       style={{
@@ -649,6 +648,7 @@ export default function Page() {
                     borderLeft: "4px solid " + YELLOW,
                     borderRadius: "0 8px 8px 0",
                     padding: "16px 20px",
+                    marginTop: 8,
                     marginBottom: 12,
                   }}
                 >
@@ -667,8 +667,7 @@ export default function Page() {
             </Section>
           </div>
 
-          <div className="footer-page-wrap">
-            <div className="footer-spacer" />
+          <div className="footer-block" style={{ marginTop: 24 }}>
             <Footer />
           </div>
         </div>
@@ -798,9 +797,9 @@ function Footer() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: 32 }}>
-      <span
-        className="section-label"
+  <div style={{ marginTop: 22, marginBottom: 32 }}>
+  <span
+  className="section-label"
         style={{
           display: "inline-block",
           fontSize: 11.5,
