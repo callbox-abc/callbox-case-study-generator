@@ -676,17 +676,12 @@ function HeroGrid({
   );
 }
 
-function Wordmark({ size = 20, light = true }: { size?: number; light?: boolean }) {
+function Wordmark({ size = 20 }: { size?: number; light?: boolean }) {
   return (
-    <div style={{ position: "relative", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-      <ChevronUp
-        size={size * 0.5}
-        style={{ color: YELLOW, position: "absolute", top: -(size * 0.62), left: "50%", transform: "translateX(-50%)" }}
-      />
-      <span style={{ fontSize: size, fontWeight: 700, color: light ? "#fff" : TEXT, letterSpacing: -0.5 }}>callbox</span>
-    </div>
+  // eslint-disable-next-line @next/next/no-img-element
+  <img src="/callbox-logo.svg" alt="Callbox" style={{ height: size * 1.7, display: "block" }} />
   );
-}
+  }
 
 function Loader() {
   return (
