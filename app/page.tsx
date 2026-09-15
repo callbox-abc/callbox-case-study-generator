@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useLayoutEffect } from "react";
-import { ChevronUp, Headset, TrendingUp, Building2, Settings, Megaphone, Target, Upload, FileText } from "lucide-react";
+import { Headset, TrendingUp, Building2, Settings, Megaphone, Target, Upload, FileText } from "lucide-react";
 import { extractFromFile } from "@/lib/extract";
 import {
   CaseStudy,
@@ -942,22 +942,6 @@ function Footer() {
             sales@callboxinc.com
           </a>
         </div>
-      </div>
-      <div
-        style={{
-          position: "absolute",
-          right: 24,
-          bottom: 20,
-          width: 34,
-          height: 34,
-          borderRadius: 6,
-          background: YELLOW,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <ChevronUp size={18} style={{ color: YELLOW_INK }} />
       </div>
     </div>
   );
