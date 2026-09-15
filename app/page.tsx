@@ -164,7 +164,10 @@ export default function Page() {
     if (node) {
       const rect = node.getBoundingClientRect();
       const widthPx = Math.ceil(rect.width);
-      const heightPx = Math.ceil(rect.height) + 24;
+      // +1 only covers sub-pixel rounding from getBoundingClientRect — the cascade fix already
+      // guarantees this tag wins, so a large safety buffer isn't needed and just shows up as a
+      // visible blank strip after the footer.
+      const heightPx = Math.ceil(rect.height) + 1;
       styleTag.textContent = `@media print { @page { size: ${widthPx}px ${heightPx}px; margin: 0; } }`;
     } else {
       styleTag.textContent = "";
