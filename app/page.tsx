@@ -921,7 +921,12 @@ function Footer() {
             {col.map((row) => (
               <div key={row.country} style={{ display: "flex", gap: 10, marginBottom: 4 }}>
                 <span style={{ fontSize: 10.5, fontWeight: 700, color: MUTED, minWidth: 78 }}>{row.country}</span>
-                <span style={{ fontSize: 10.5, color: TEXT }}>{row.number}</span>
+                <a
+                  href={"tel:" + row.number.replace(/[^\d+]/g, "")}
+                  style={{ fontSize: 10.5, color: TEXT, textDecoration: "none" }}
+                >
+                  {row.number}
+                </a>
               </div>
             ))}
           </div>
@@ -930,8 +935,12 @@ function Footer() {
           <div style={{ fontSize: 11, fontWeight: 800, color: TEXT, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>
             Email
           </div>
-          <div style={{ fontSize: 10.5, color: TEXT, marginBottom: 4 }}>info@callboxinc.com</div>
-          <div style={{ fontSize: 10.5, color: TEXT }}>sales@callboxinc.com</div>
+          <a href="mailto:info@callboxinc.com" style={{ display: "block", fontSize: 10.5, color: TEXT, textDecoration: "none", marginBottom: 4 }}>
+            info@callboxinc.com
+          </a>
+          <a href="mailto:sales@callboxinc.com" style={{ display: "block", fontSize: 10.5, color: TEXT, textDecoration: "none" }}>
+            sales@callboxinc.com
+          </a>
         </div>
       </div>
       <div
