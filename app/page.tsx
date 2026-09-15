@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { ChevronUp, Headset, TrendingUp, Users, Database, Megaphone, Target, Upload, FileText } from "lucide-react";
+import { ChevronUp, Headset, TrendingUp, Building2, Settings, Megaphone, Target, Upload, FileText } from "lucide-react";
 import { extractFromFile } from "@/lib/extract";
 import {
   CaseStudy,
@@ -31,7 +31,7 @@ const BORDER_STRONG = "rgba(255,255,255,0.14)";
 
 type Stage = "upload" | "mapping" | "edit";
 
-const SOLUTION_ICONS = [Headset, TrendingUp, Users, Database, Megaphone, Target];
+const SOLUTION_ICONS = [Headset, TrendingUp, Building2, Settings, Megaphone, Target];
 
 export default function Page() {
   const [stage, setStage] = useState<Stage>("upload");
@@ -469,36 +469,6 @@ export default function Page() {
               </div>
             </Section>
 
-            <Section title="Key Highlights">
-              {cs.keyHighlights.map((h, i) => (
-                <BulletRow key={i}>
-                  <EditableField
-                    value={h}
-                    onChange={(v) => setArrField("keyHighlights", i, v)}
-                    placeholder="A key result or highlight…"
-                    multiline
-                    style={{ fontSize: 14, lineHeight: 1.65, color: MUTED_LIGHT }}
-                  />
-                </BulletRow>
-              ))}
-              <AddLink onClick={addHighlight} label="+ Add highlight" />
-            </Section>
-
-            <Section title="Program Goals">
-              {cs.programGoals.map((g, i) => (
-                <NumberedRow key={i} n={i + 1}>
-                  <EditableField
-                    value={g}
-                    onChange={(v) => setArrField("programGoals", i, v)}
-                    placeholder="A program goal…"
-                    multiline
-                    style={{ fontSize: 14, lineHeight: 1.65, color: MUTED_LIGHT }}
-                  />
-                </NumberedRow>
-              ))}
-              <AddLink onClick={addGoal} label="+ Add goal" />
-            </Section>
-
             <Section title="The Solution">
               <div className="editable-field" style={{ marginBottom: 18 }}>
                 <EditableField
@@ -541,15 +511,61 @@ export default function Page() {
               </div>
             </Section>
 
+            <Section title="Program Goals">
+              {cs.programGoals.map((g, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: "flex",
+                    gap: 14,
+                    alignItems: "flex-start",
+                    background: CARD_BG,
+                    borderRadius: 8,
+                    padding: "14px 18px",
+                    marginBottom: 10,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: "50%",
+                      background: YELLOW,
+                      color: YELLOW_INK,
+                      fontSize: 12,
+                      fontWeight: 800,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                      marginTop: 2,
+                    }}
+                  >
+                    {i + 1}
+                  </div>
+                  <div className="editable-field" style={{ flex: 1 }}>
+                    <EditableField
+                      value={g}
+                      onChange={(v) => setArrField("programGoals", i, v)}
+                      placeholder="A program goal…"
+                      multiline
+                      style={{ fontSize: 14, lineHeight: 1.65, color: MUTED_LIGHT }}
+                    />
+                  </div>
+                </div>
+              ))}
+              <AddLink onClick={addGoal} label="+ Add goal" />
+            </Section>
+
             <Section title="How It Ran">
               {cs.howItRan.map((p, pi) => (
-                <div key={pi} style={{ marginBottom: 20 }}>
-                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <div key={pi}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "14px 0" }}>
                     <div
                       style={{
-                        width: 26,
-                        height: 26,
-                        borderRadius: "50%",
+                        width: 22,
+                        height: 22,
+                        borderRadius: 5,
                         background: YELLOW,
                         color: YELLOW_INK,
                         fontSize: 12,
@@ -569,12 +585,12 @@ export default function Page() {
                           value={p.phase}
                           onChange={(v) => setPhaseField(pi, v)}
                           placeholder="Phase name"
-                          style={{ fontSize: 15, fontWeight: 700, color: TEXT, marginBottom: 7 }}
+                          style={{ fontSize: 15, fontWeight: 700, color: TEXT, marginBottom: 8 }}
                         />
                       </div>
                       {p.steps.map((s, si) => (
-                        <div key={si} style={{ display: "flex", gap: 8, marginBottom: 5 }}>
-                          <span style={{ color: TEAL, fontSize: 13 }}>•</span>
+                        <div key={si} style={{ display: "flex", gap: 5, marginBottom: 4 }}>
+                          <span style={{ color: MUTED_LIGHT, fontSize: 13.5, flexShrink: 0 }}>{si + 1}.</span>
                           <div className="editable-field" style={{ flex: 1 }}>
                             <EditableField
                               value={s}
@@ -589,15 +605,40 @@ export default function Page() {
                       <AddLink onClick={() => addPhaseStep(pi)} label="+ Add step" small />
                     </div>
                   </div>
+                  {pi < cs.howItRan.length - 1 && <div style={{ height: 1, background: BORDER, margin: "4px 0" }} />}
                 </div>
               ))}
               <AddLink onClick={addPhase} label="+ Add phase" />
             </Section>
+
+            <Section title="Key Highlights">
+              {cs.keyHighlights.map((h, i) => (
+                <div
+                  key={i}
+                  style={{
+                    background: CARD_BG,
+                    borderLeft: "4px solid " + YELLOW,
+                    borderRadius: "0 8px 8px 0",
+                    padding: "16px 20px",
+                    marginBottom: 12,
+                  }}
+                >
+                  <div className="editable-field">
+                    <EditableField
+                      value={h}
+                      onChange={(v) => setArrField("keyHighlights", i, v)}
+                      placeholder="A key result or highlight…"
+                      multiline
+                      style={{ fontSize: 14, lineHeight: 1.65, color: MUTED_LIGHT }}
+                    />
+                  </div>
+                </div>
+              ))}
+              <AddLink onClick={addHighlight} label="+ Add highlight" />
+            </Section>
           </div>
 
-          <div style={{ background: "#0a0b0d", color: MUTED, padding: "18px 32px", fontSize: 11, textAlign: "center", letterSpacing: 0.3 }}>
-            Callbox Inc. · info@callboxinc.com · callboxinc.com
-          </div>
+          <Footer />
         </div>
       </div>
     </div>
@@ -665,6 +706,69 @@ function Loader() {
   );
 }
 
+const FOOTER_CALL_COLS = [
+  [
+    { country: "USA", number: "+1 888.810.7464" },
+    { country: "UK", number: "+44 207.442.5066" },
+    { country: "AUSTRALIA", number: "+61 2 9037 2248" },
+    { country: "COLOMBIA", number: "+57 601 508 4456" },
+  ],
+  [
+    { country: "NEW ZEALAND", number: "+1 888.810.7464" },
+    { country: "SINGAPORE", number: "+44 207.442.5066" },
+    { country: "MALAYSIA", number: "+61 2 9037 2248" },
+    { country: "HONG KONG", number: "+57 601 508 4456" },
+  ],
+];
+
+function Footer() {
+  return (
+    <div style={{ background: "#0a0b0d", padding: "26px 48px", position: "relative" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 32 }}>
+        {FOOTER_CALL_COLS.map((col, ci) => (
+          <div key={ci}>
+            {ci === 0 && (
+              <div style={{ fontSize: 11, fontWeight: 800, color: TEXT, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>
+                Call
+              </div>
+            )}
+            {ci > 0 && <div style={{ height: 17 }} />}
+            {col.map((row) => (
+              <div key={row.country} style={{ display: "flex", gap: 10, marginBottom: 4 }}>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: MUTED, minWidth: 78 }}>{row.country}</span>
+                <span style={{ fontSize: 10.5, color: TEXT }}>{row.number}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: TEXT, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>
+            Email
+          </div>
+          <div style={{ fontSize: 10.5, color: TEXT, marginBottom: 4 }}>info@callboxinc.com</div>
+          <div style={{ fontSize: 10.5, color: TEXT }}>sales@callboxinc.com</div>
+        </div>
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          right: 24,
+          bottom: 20,
+          width: 34,
+          height: 34,
+          borderRadius: 6,
+          background: YELLOW,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <ChevronUp size={18} style={{ color: YELLOW_INK }} />
+      </div>
+    </div>
+  );
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 32 }}>
@@ -685,26 +789,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         {title}
       </span>
       {children}
-    </div>
-  );
-}
-function BulletRow({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ display: "flex", gap: 9, marginBottom: 7 }}>
-      <span style={{ color: YELLOW, fontSize: 13, marginTop: 3 }}>●</span>
-      <div className="editable-field" style={{ flex: 1 }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-function NumberedRow({ n, children }: { n: number; children: React.ReactNode }) {
-  return (
-    <div style={{ display: "flex", gap: 9, marginBottom: 7 }}>
-      <span style={{ color: YELLOW, fontSize: 13, fontWeight: 800, minWidth: 18 }}>{n}.</span>
-      <div className="editable-field" style={{ flex: 1 }}>
-        {children}
-      </div>
     </div>
   );
 }
