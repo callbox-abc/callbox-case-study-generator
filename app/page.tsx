@@ -141,54 +141,60 @@ export default function Page() {
   };
 
   // Chrome's print engine has no true auto-height @page: "size: auto" silently falls back to
-  // the physical Letter/A4 size chosen in the print dialog and paginates against it. The global
-  // stylesheet sets a generous fixed-height @page (20000px) as a safety net; below we measure the
-  // actual rendered content and overwrite it with a size that matches exactly, so the export
-  // isn't left with a huge trailing blank area.
+  // the physical Letter/A4 size chosen in the print dialog and paginates against it. So we
+  // measure the actual rendered content and inject a @page rule that matches it exactly.
   //
   // The real bug behind the persistent trailing gap: several "+ Add ..." editor controls (e.g.
   // "+ Add highlight") sit as the LAST element of their section, right before the Footer, and
-  // carry the .no-print class. If we measure the page while it's still on screen (before
-  // window.print() applies the print stylesheet), those controls are still visible and inflate
-  // the measured height — then they collapse to display:none at actual print time, so the real
-  // content (Footer included) ends up shorter than the @page height we already locked in,
-  // leaving blank space after the footer. The fix is to measure during the "beforeprint" event,
-  // which fires AFTER the browser has applied print styles (.no-print already collapsed), so the
-  // measured height matches exactly what will actually be printed.
-  useEffect(() => {
-    const applyPageSize = () => {
-      const node = pdfPageRef.current;
-      const styleId = "dynamic-page-size";
-      let styleTag = document.getElementById(styleId) as HTMLStyleElement | null;
-      if (!styleTag) {
-        styleTag = document.createElement("style");
-        styleTag.id = styleId;
-      }
-      // The safety-net @page rule lives in a <style> tag rendered inside <body> (part of the JSX
-      // tree), which comes AFTER <head> in document order. Competing @page declarations resolve
-      // by document order (last one wins), so our override must be appended to the END of
-      // <body> — not <head> — or the body-based fallback always wins. appendChild also moves an
-      // existing node to the end if it's already in the DOM, re-asserting it on every print.
-      document.body.appendChild(styleTag);
-      if (node) {
-        const rect = node.getBoundingClientRect();
-        // Firefox's print engine doesn't reliably honor @page size given in px — it can snap the
-        // page box to a nearby standard size. Physical units (in) are handled consistently by
-        // both engines, so convert using the CSS reference pixel ratio (96px = 1in).
-        const PX_PER_IN = 96;
-        // +0.02in only covers sub-pixel/rounding slack.
-        const widthIn = (Math.ceil(rect.width) / PX_PER_IN).toFixed(3);
-        const heightIn = (Math.ceil(rect.height) / PX_PER_IN + 0.02).toFixed(3);
-        styleTag.textContent = `@media print { @page { size: ${widthIn}in ${heightIn}in; margin: 0; } }`;
-      } else {
-        styleTag.textContent = "";
-      }
-    };
-    window.addEventListener("beforeprint", applyPageSize);
-    return () => window.removeEventListener("beforeprint", applyPageSize);
-  }, []);
+  // carry the .no-print class. Measuring via the "beforeprint" event is NOT reliable — it does
+  // not guarantee the browser has already recalculated @media print layout (verified directly:
+  // .no-print elements still read getComputedStyle(el).display === "inline-block" inside a
+  // beforeprint listener, even with an rAF delay). So instead we force-hide every .no-print
+  // element with inline styles synchronously in the click handler, measure, then restore —
+  // this guarantees the measurement reflects reality rather than hoping a stylesheet has been
+  // applied by then.
+  //
+  // There is exactly ONE @page rule anywhere in the app (injected below, into <body>, on click).
+  // No separate fixed-height "safety net" @page rule exists — two competing @page rules
+  // resolving via document order was the original bug; we don't reintroduce that pattern here.
+  const applyDynamicPageSize = () => {
+    const node = pdfPageRef.current;
+    const styleId = "dynamic-page-size";
+    let styleTag = document.getElementById(styleId) as HTMLStyleElement | null;
+    if (!styleTag) {
+      styleTag = document.createElement("style");
+      styleTag.id = styleId;
+    }
+    document.body.appendChild(styleTag);
+    if (!node) {
+      styleTag.textContent = "";
+      return;
+    }
+
+    const noPrintEls = Array.from(document.querySelectorAll<HTMLElement>(".no-print"));
+    const originalDisplay = noPrintEls.map((el) => el.style.display);
+    noPrintEls.forEach((el) => {
+      el.style.display = "none";
+    });
+
+    const rect = node.getBoundingClientRect();
+
+    noPrintEls.forEach((el, i) => {
+      el.style.display = originalDisplay[i];
+    });
+
+    // Firefox's print engine doesn't reliably honor @page size given in px — it can snap the
+    // page box to a nearby standard size. Physical units (in) are handled consistently by
+    // both engines, so convert using the CSS reference pixel ratio (96px = 1in).
+    const PX_PER_IN = 96;
+    // +0.02in only covers sub-pixel/rounding slack.
+    const widthIn = (Math.ceil(rect.width) / PX_PER_IN).toFixed(3);
+    const heightIn = (Math.ceil(rect.height) / PX_PER_IN + 0.02).toFixed(3);
+    styleTag.textContent = `@media print { @page { size: ${widthIn}in ${heightIn}in; margin: 0; } }`;
+  };
 
   const printNow = () => {
+    applyDynamicPageSize();
     window.print();
   };
 
@@ -790,11 +796,11 @@ export default function Page() {
           .app-shell { background: ${BG} !important; padding: 0 !important; }
           input, textarea { border: none !important; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-          /* Chrome's print engine has no true auto-height page: "size: auto" falls back to the
-             physical Letter/A4 size chosen in the print dialog and paginates against it. A fixed
-             page height (overridden per-document by the dynamic-page-size tag in printNow) forces
-             one continuous sheet instead. This is the ONLY @page rule in the app. */
-          @page { size: 816px 20000px; margin: 0; }
+          /* No @page rule is declared here. The only @page rule in the app is injected into a
+             <style id="dynamic-page-size"> tag appended to <body> by applyDynamicPageSize()
+             right before window.print() is called, sized to the exact measured content height.
+             Declaring a second @page rule here (even as a "safety net") would reintroduce the
+             two-competing-@page-rules bug this fix specifically avoids. */
           html, body { height: auto !important; overflow: visible !important; }
           /* .app-root has an unconditional inline minHeight:100vh (for the on-screen editor layout).
              Chrome's print engine resolves vh units against the paper's default page box rather
