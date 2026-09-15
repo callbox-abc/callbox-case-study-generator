@@ -49,6 +49,7 @@ export default function Page() {
   const [copied, setCopied] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const pdfPageRef = useRef<HTMLDivElement>(null);
 
   const setField = (k: keyof CaseStudy, v: any) => setCs((p) => ({ ...p, [k]: v }));
   const setArrField = (k: "keyHighlights" | "programGoals", i: number, v: string) =>
@@ -137,7 +138,27 @@ export default function Page() {
     if (f) handleFile(f);
   };
 
-  const printNow = () => window.print();
+  const printNow = () => {
+    // Browsers paginate print output against a fixed physical paper size
+    // (Letter/A4) chosen in the print dialog, regardless of @page { size: auto }.
+    // To get one continuous, unpaginated sheet we measure the actual rendered
+    // content height and inject an explicit @page size matching it.
+    const node = pdfPageRef.current;
+    const styleId = "dynamic-page-size";
+    let styleTag = document.getElementById(styleId) as HTMLStyleElement | null;
+    if (!styleTag) {
+      styleTag = document.createElement("style");
+      styleTag.id = styleId;
+      document.head.appendChild(styleTag);
+    }
+    if (node) {
+      const rect = node.getBoundingClientRect();
+      const widthPx = Math.ceil(rect.width);
+      const heightPx = Math.ceil(rect.height);
+      styleTag.textContent = `@media print { @page { size: ${widthPx}px ${heightPx}px; margin: 0; } }`;
+    }
+    window.print();
+  };
 
   const inpS: React.CSSProperties = {
     padding: "11px 14px",
@@ -778,6 +799,7 @@ export default function Page() {
       <div className="app-shell" style={{ padding: "24px 16px 80px", display: "flex", justifyContent: "center" }}>
         <div style={{ width: "100%", maxWidth: A4_W }}>
           <div
+            ref={pdfPageRef}
             className="pdf-page"
             style={{
               width: A4_W,
