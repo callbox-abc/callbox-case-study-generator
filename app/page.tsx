@@ -75,6 +75,8 @@ export default function Page() {
     }));
   const setMetricField = (i: number, k: "value" | "label", v: string) =>
     setCs((p) => ({ ...p, metrics: p.metrics.map((m, idx) => (idx === i ? { ...m, [k]: v } : m)) }));
+  const addMetric = () => setCs((p) => ({ ...p, metrics: [...p.metrics, { value: "", label: "" }] }));
+  const removeMetric = (i: number) => setCs((p) => ({ ...p, metrics: p.metrics.filter((_, idx) => idx !== i) }));
   const addPhase = () => setCs((p) => ({ ...p, howItRan: [...p.howItRan, { phase: "", steps: [""] }] }));
   const addGoal = () => setCs((p) => ({ ...p, programGoals: [...p.programGoals, ""] }));
   const addHighlight = () => setCs((p) => ({ ...p, keyHighlights: [...p.keyHighlights, ""] }));
@@ -252,35 +254,74 @@ export default function Page() {
   );
 
   const statsNode = (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", background: YELLOW }}>
-      {cs.metrics.map((m, i) => (
-        <div
-          key={i}
+    <div style={{ background: YELLOW, padding: "26px 18px 20px" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center" }}>
+        {cs.metrics.map((m, i) => (
+          <div
+            key={i}
+            className="metric-card"
+            style={{
+              position: "relative",
+              textAlign: "center",
+              padding: "12px 22px",
+              flex: "1 1 150px",
+              maxWidth: 220,
+            }}
+          >
+            <button
+              onClick={() => removeMetric(i)}
+              className="no-print"
+              aria-label="Remove metric"
+              style={{
+                position: "absolute",
+                top: 2,
+                right: 4,
+                border: "none",
+                background: "transparent",
+                color: "rgba(0,0,0,0.45)",
+                cursor: "pointer",
+                padding: 2,
+              }}
+            >
+              <X size={14} />
+            </button>
+            <div className="editable-field-dark">
+              <EditableField
+                value={m.value}
+                onChange={(v) => setMetricField(i, "value", v)}
+                placeholder="0"
+                style={{ fontSize: 32, fontWeight: 800, color: YELLOW_INK, textAlign: "center" }}
+              />
+            </div>
+            <div className="editable-field-dark">
+              <EditableField
+                value={m.label}
+                onChange={(v) => setMetricField(i, "label", v)}
+                placeholder="Metric label"
+                multiline
+                style={{ fontSize: 13, fontWeight: 600, color: YELLOW_INK, textAlign: "center" }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="no-print" style={{ display: "flex", justifyContent: "center", marginTop: 8 }}>
+        <button
+          onClick={addMetric}
           style={{
-            textAlign: "center",
-            padding: "30px 18px",
-            borderRight: i < cs.metrics.length - 1 ? "1px solid rgba(0,0,0,0.12)" : "none",
+            border: "1px dashed rgba(0,0,0,0.35)",
+            background: "transparent",
+            color: YELLOW_INK,
+            borderRadius: 6,
+            padding: "6px 14px",
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: "pointer",
           }}
         >
-          <div className="editable-field-dark">
-            <EditableField
-              value={m.value}
-              onChange={(v) => setMetricField(i, "value", v)}
-              placeholder="0"
-              style={{ fontSize: 32, fontWeight: 800, color: YELLOW_INK, textAlign: "center" }}
-            />
-          </div>
-          <div className="editable-field-dark">
-            <EditableField
-              value={m.label}
-              onChange={(v) => setMetricField(i, "label", v)}
-              placeholder="Metric label"
-              multiline
-              style={{ fontSize: 13, fontWeight: 600, color: YELLOW_INK, textAlign: "center" }}
-            />
-          </div>
-        </div>
-      ))}
+          + Add metric
+        </button>
+      </div>
     </div>
   );
 
