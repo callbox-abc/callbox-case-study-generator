@@ -7,7 +7,10 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const SYSTEM_INSTRUCTION =
   "You are extracting structured fields from a raw B2B case study document " +
-  "(Callbox Inc, a B2B lead generation company) so they can populate a fixed template. " +
+  "(Callbox Inc, a B2B lead generation company) so they can populate a fixed template that mirrors " +
+  "Callbox's corporate case study PDF layout. " +
+  "\"clientSnapshot\" is the short descriptive paragraph that introduces who the client is (usually under a " +
+  "'Client Snapshot' heading) — distinct from the short metadata fields like industry/program/duration. " +
   "Use the document's own wording as much as possible — light cleanup only, never invent facts " +
   "that are not present in the source. If a field is genuinely absent from the source, return an " +
   "empty string or empty array for it rather than guessing or fabricating a plausible-sounding value. " +
@@ -23,6 +26,7 @@ const RESPONSE_SHAPE = `{
   "targetProspects": string,
   "businessSize": string,
   "clientLocation": string,
+  "clientSnapshot": string,
   "keyHighlights": string[],
   "challenge": string,
   "programGoals": string[],

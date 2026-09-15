@@ -12,6 +12,7 @@ export type CaseStudy = {
   targetProspects: string;
   businessSize: string;
   clientLocation: string;
+  clientSnapshot: string;
   keyHighlights: string[];
   challenge: string;
   programGoals: string[];
@@ -31,6 +32,7 @@ export const EMPTY_CASE: CaseStudy = {
   targetProspects: "",
   businessSize: "",
   clientLocation: "",
+  clientSnapshot: "",
   keyHighlights: ["", "", ""],
   challenge: "",
   programGoals: ["", "", ""],
@@ -55,14 +57,19 @@ export const EMPTY_CASE: CaseStudy = {
 
 export const FIELD_LABELS: Record<string, string> = {
   industry: "Industry",
-  targetIndustries: "Target Industries",
   program: "Program",
-  targetLocation: "Target Location",
   duration: "Duration",
-  targetProspects: "Target Prospects",
-  businessSize: "Target Business Size",
   clientLocation: "Location",
+  targetIndustries: "Target Industries",
+  targetLocation: "Target Location",
+  businessSize: "Target Business Size",
+  targetProspects: "Target Prospects",
 };
+
+// Row 1 of the hero snapshot grid — program/engagement facts.
+export const HERO_ROW_1: (keyof CaseStudy)[] = ["industry", "program", "duration", "clientLocation"];
+// Row 2 of the hero snapshot grid — targeting facts.
+export const HERO_ROW_2: (keyof CaseStudy)[] = ["targetIndustries", "targetLocation", "businessSize", "targetProspects"];
 
 export function mergeMapped(parsed: Partial<CaseStudy>): CaseStudy {
   return {
@@ -78,12 +85,12 @@ export function mergeMapped(parsed: Partial<CaseStudy>): CaseStudy {
 
 export function buildPlainText(cs: CaseStudy): string {
   let x = (cs.title || "Untitled Case Study").toUpperCase() + "\n" + "=".repeat(50) + "\n\n";
-  x += "CLIENT SNAPSHOT\n";
   Object.keys(FIELD_LABELS).forEach((k) => {
     const v = (cs as any)[k];
     if (v) x += FIELD_LABELS[k] + ": " + v + "\n";
   });
   x += "\n";
+  if (cs.clientSnapshot) x += "CLIENT SNAPSHOT\n" + cs.clientSnapshot + "\n\n";
   const highlights = cs.keyHighlights.filter(Boolean);
   if (highlights.length) {
     x += "KEY HIGHLIGHTS\n";
