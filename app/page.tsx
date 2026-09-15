@@ -141,17 +141,24 @@ export default function Page() {
   const printNow = () => {
     // Chrome's print engine has no true auto-height @page: "size: auto" silently falls back to
     // the physical Letter/A4 size chosen in the print dialog and paginates against it. The global
-    // stylesheet already sets a generous fixed-height @page (20000px) as a safety net; here we
-    // measure the actual rendered content and overwrite it with a size that matches exactly, plus
-    // a small buffer, so rounding never triggers a trailing blank page.
+    // stylesheet sets a generous fixed-height @page (20000px) as a safety net; here we measure the
+    // actual rendered content and overwrite it with a size that matches exactly, plus a small
+    // buffer, so the export isn't left with a huge trailing blank area.
+    //
+    // The safety-net @page rule lives in a <style> tag rendered inside <body> (part of the JSX
+    // tree), which comes AFTER <head> in document order. Competing @page declarations resolve by
+    // document order (last one wins), so our override must be appended to the END of <body> — not
+    // <head> — or the body-based fallback always wins regardless of what we set here.
     const node = pdfPageRef.current;
     const styleId = "dynamic-page-size";
     let styleTag = document.getElementById(styleId) as HTMLStyleElement | null;
     if (!styleTag) {
       styleTag = document.createElement("style");
       styleTag.id = styleId;
-      document.head.appendChild(styleTag);
     }
+    // appendChild moves an existing node to the end if it's already in the DOM, so this also
+    // re-asserts our tag as the very last element on every print, guaranteeing it wins the cascade.
+    document.body.appendChild(styleTag);
     if (node) {
       const rect = node.getBoundingClientRect();
       const widthPx = Math.ceil(rect.width);
