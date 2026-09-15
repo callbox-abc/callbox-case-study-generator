@@ -371,7 +371,7 @@ export default function Page() {
     id: "snapshot",
     node: (
       <div>
-        <SectionLabel title="Client Snapshot" />
+        <SectionLabel title="The Client" />
         <div className="editable-field print-flow-text">
           <EditableField
             value={cs.clientSnapshot}
@@ -775,7 +775,20 @@ export default function Page() {
                     if (!b) return null;
                     const isFooter = id === "footer";
                     return (
-                      <div key={id} className="avoid-break" style={isFooter ? { marginTop: "auto" } : { marginBottom: BLOCK_GAP }}>
+                      <div
+                        key={id}
+                        className="avoid-break"
+                        style={
+                          isFooter
+                            ? {
+                                marginTop: "auto",
+                                marginLeft: -PAGE_PAD_X,
+                                marginRight: -PAGE_PAD_X,
+                                marginBottom: -PAGE_PAD_Y,
+                              }
+                            : { marginBottom: BLOCK_GAP }
+                        }
+                      >
                         {b.node}
                       </div>
                     );
