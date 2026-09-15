@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory } from "@google/generative-ai";
 
 // This route runs ONLY on the server (Vercel serverless function).
 // GEMINI_API_KEY is read from process.env — it is never sent to the browser.
@@ -70,37 +70,60 @@ export async function POST(req: NextRequest) {
   // Guard against runaway input — keep the prompt to a sane size for extraction.
   const truncated = text.slice(0, 20000);
 
+  // Some browsers (notably Firefox) can produce PDF/DOCX text extractions with stray control
+  // characters or unusual whitespace runs that occasionally trip Gemini's safety filters or
+  // cause it to preface its output with commentary even when told not to. Strip the worst
+  // offenders before sending the text along.
+  const sanitized = sanitizeExtractedText(truncated);
+
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
+    const safetySettings = [
+      HarmCategory.HARM_CATEGORY_HARASSMENT,
+      HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+      HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+      HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    ].map((category) => ({ category, threshold: HarmBlockThreshold.BLOCK_NONE }));
+
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
       systemInstruction: SYSTEM_INSTRUCTION,
       generationConfig: {
         responseMimeType: "application/json",
       },
+      safetySettings,
     });
 
     const prompt =
       `Map the document text below into this exact JSON shape:\n${RESPONSE_SHAPE}\n\n` +
-      `DOCUMENT TEXT:\n${truncated}`;
+      `DOCUMENT TEXT:\n${sanitized}`;
 
     const result = await model.generateContent(prompt);
     const raw = result.response.text();
 
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      // Gemini occasionally wraps JSON in fences even when asked not to — strip and retry once.
-      const cleaned = raw.replace(/```json|```/g, "").trim();
+    let parsed = tryParseJson(raw);
+
+    if (!parsed) {
+      console.log("[v0] First mapping attempt did not yield valid JSON, asking model to repair it");
+      // Self-repair pass: hand the malformed output back to the model and ask it to fix it,
+      // rather than failing outright.
       try {
-        parsed = JSON.parse(cleaned);
-      } catch {
-        return NextResponse.json(
-          { error: "Model did not return valid JSON. Try again, or paste content manually." },
-          { status: 502 }
+        const repairResult = await model.generateContent(
+          `Your previous response was supposed to be ONLY valid JSON matching this shape:\n${RESPONSE_SHAPE}\n\n` +
+            `but it was not valid JSON. Here is what you returned:\n${raw}\n\n` +
+            `Return ONLY the corrected, valid JSON now — no markdown fences, no commentary.`
         );
+        parsed = tryParseJson(repairResult.response.text());
+      } catch (repairErr) {
+        console.log("[v0] Repair pass failed:", (repairErr as any)?.message);
       }
+    }
+
+    if (!parsed) {
+      return NextResponse.json(
+        { error: "Model did not return valid JSON. Try again, or paste content manually." },
+        { status: 502 }
+      );
     }
 
     return NextResponse.json({ data: parsed });
@@ -108,4 +131,33 @@ export async function POST(req: NextRequest) {
     const message = err?.message || "Unknown error calling Gemini.";
     return NextResponse.json({ error: message }, { status: 502 });
   }
+}
+
+function sanitizeExtractedText(text: string): string {
+  return text
+    // eslint-disable-next-line no-control-regex -- stripping stray control chars from PDF/DOCX extraction
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
+    .replace(/\u0000/g, "")
+    .trim();
+}
+
+function tryParseJson(raw: string): any | null {
+  const attempts = [raw, raw.replace(/```json|```/g, "").trim()];
+
+  // Some responses include leading/trailing commentary around the JSON object —
+  // fall back to slicing out the outermost { ... } block.
+  const firstBrace = raw.indexOf("{");
+  const lastBrace = raw.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    attempts.push(raw.slice(firstBrace, lastBrace + 1));
+  }
+
+  for (const attempt of attempts) {
+    try {
+      return JSON.parse(attempt);
+    } catch {
+      // try next
+    }
+  }
+  return null;
 }
