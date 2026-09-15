@@ -765,7 +765,7 @@ export default function Page() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: BG, color: TEXT }}>
+    <div className="app-root" style={{ minHeight: "100vh", background: BG, color: TEXT }}>
       <style>{`
         @media print {
           html, body { background: ${BG} !important; }
@@ -779,6 +779,11 @@ export default function Page() {
              one continuous sheet instead. This is the ONLY @page rule in the app. */
           @page { size: 816px 20000px; margin: 0; }
           html, body { height: auto !important; overflow: visible !important; }
+          /* .app-root has an unconditional inline minHeight:100vh (for the on-screen editor layout).
+             Chrome's print engine resolves vh units against the paper's default page box rather
+             than our dynamically-injected @page size, so that 100vh silently forces blank space
+             below the content even after the page is sized to fit it exactly. Zero it in print. */
+          .app-root { min-height: 0 !important; }
           .pdf-page { box-shadow: none !important; margin: 0 !important; border-radius: 0 !important; overflow: visible !important; height: auto !important; }
           .avoid-break { break-inside: avoid !important; page-break-inside: avoid !important; }
         }
