@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useLayoutEffect } from "react";
-import { Headset, TrendingUp, Building2, Settings, Megaphone, Target, Upload, FileText } from "lucide-react";
+import { useState, useRef } from "react";
+import { Headset, TrendingUp, Building2, Settings, Megaphone, Target, Upload, FileText, X } from "lucide-react";
 import { extractFromFile } from "@/lib/extract";
 import {
   CaseStudy,
@@ -29,15 +29,12 @@ const MUTED_LIGHT = "#c7c8d3";
 const BORDER = "rgba(255,255,255,0.08)";
 const BORDER_STRONG = "rgba(255,255,255,0.14)";
 
-// A4 @ 96dpi (the CSS px reference browsers use for @page sizing) — every printed
-// page is exactly this box. Pagination is computed in JS against these dimensions
-// instead of relying on the browser's own print break heuristics, which proved
-// unreliable for this dark, full-bleed grid/flex layout.
+// Document width @ 96dpi (the CSS px reference browsers use for sizing) — the
+// sheet renders at this fixed width both on screen and when printed, flowing
+// continuously as one long page instead of being split into fixed-height pages.
 const A4_W = 794;
-const A4_H = 1123;
 const PAGE_PAD_X = 48;
 const PAGE_PAD_Y = 40;
-const CONTENT_W = A4_W - PAGE_PAD_X * 2;
 const BLOCK_GAP = 20;
 
 type Stage = "upload" | "mapping" | "edit";
@@ -80,6 +77,15 @@ export default function Page() {
   const addPhase = () => setCs((p) => ({ ...p, howItRan: [...p.howItRan, { phase: "", steps: [""] }] }));
   const addGoal = () => setCs((p) => ({ ...p, programGoals: [...p.programGoals, ""] }));
   const addHighlight = () => setCs((p) => ({ ...p, keyHighlights: [...p.keyHighlights, ""] }));
+  const removeGoal = (i: number) => setCs((p) => ({ ...p, programGoals: p.programGoals.filter((_, idx) => idx !== i) }));
+  const removeHighlight = (i: number) =>
+    setCs((p) => ({ ...p, keyHighlights: p.keyHighlights.filter((_, idx) => idx !== i) }));
+  const removePhase = (pi: number) => setCs((p) => ({ ...p, howItRan: p.howItRan.filter((_, idx) => idx !== pi) }));
+  const removePhaseStep = (pi: number, si: number) =>
+    setCs((p) => ({
+      ...p,
+      howItRan: p.howItRan.map((ph, idx) => (idx === pi ? { ...ph, steps: ph.steps.filter((_, sidx) => sidx !== si) } : ph)),
+    }));
 
   const runMapping = async (text: string) => {
     setStage("mapping");
@@ -287,6 +293,14 @@ export default function Page() {
           style={{ fontSize: 14, lineHeight: 1.65, color: MUTED_LIGHT }}
         />
       </div>
+      <button
+        onClick={() => removeGoal(i)}
+        className="no-print"
+        aria-label="Remove goal"
+        style={{ border: "none", background: "transparent", color: MUTED, cursor: "pointer", padding: 2, flexShrink: 0, marginTop: 2 }}
+      >
+        <X size={14} />
+      </button>
     </div>
   );
 
@@ -312,16 +326,26 @@ export default function Page() {
           {pi + 1}
         </div>
         <div style={{ flex: 1 }}>
-          <div className="editable-field">
-            <EditableField
-              value={p.phase}
-              onChange={(v) => setPhaseField(pi, v)}
-              placeholder="Phase name"
-              style={{ fontSize: 15, fontWeight: 700, color: TEXT, marginBottom: 8 }}
-            />
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+            <div className="editable-field" style={{ flex: 1 }}>
+              <EditableField
+                value={p.phase}
+                onChange={(v) => setPhaseField(pi, v)}
+                placeholder="Phase name"
+                style={{ fontSize: 15, fontWeight: 700, color: TEXT, marginBottom: 8 }}
+              />
+            </div>
+            <button
+              onClick={() => removePhase(pi)}
+              className="no-print"
+              aria-label="Remove phase"
+              style={{ border: "none", background: "transparent", color: MUTED, cursor: "pointer", padding: 2, flexShrink: 0 }}
+            >
+              <X size={14} />
+            </button>
           </div>
           {p.steps.map((s, si) => (
-            <div key={si} style={{ display: "flex", gap: 5, marginBottom: 4 }}>
+            <div key={si} style={{ display: "flex", gap: 5, marginBottom: 4, alignItems: "flex-start" }}>
               <span style={{ color: MUTED_LIGHT, fontSize: 13.5, flexShrink: 0 }}>{si + 1}.</span>
               <div className="editable-field" style={{ flex: 1 }}>
                 <EditableField
@@ -332,6 +356,14 @@ export default function Page() {
                   style={{ fontSize: 13.5, lineHeight: 1.6, color: MUTED_LIGHT }}
                 />
               </div>
+              <button
+                onClick={() => removePhaseStep(pi, si)}
+                className="no-print"
+                aria-label="Remove step"
+                style={{ border: "none", background: "transparent", color: MUTED, cursor: "pointer", padding: 2, flexShrink: 0 }}
+              >
+                <X size={12} />
+              </button>
             </div>
           ))}
           <AddLink onClick={() => addPhaseStep(pi)} label="+ Add step" small />
@@ -352,14 +384,24 @@ export default function Page() {
         marginBottom: 12,
       }}
     >
-      <div className="editable-field">
-        <EditableField
-          value={h}
-          onChange={(v) => setArrField("keyHighlights", i, v)}
-          placeholder="A key result or highlight…"
-          multiline
-          style={{ fontSize: 14, lineHeight: 1.65, color: MUTED_LIGHT }}
-        />
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+        <div className="editable-field" style={{ flex: 1 }}>
+          <EditableField
+            value={h}
+            onChange={(v) => setArrField("keyHighlights", i, v)}
+            placeholder="A key result or highlight…"
+            multiline
+            style={{ fontSize: 14, lineHeight: 1.65, color: MUTED_LIGHT }}
+          />
+        </div>
+        <button
+          onClick={() => removeHighlight(i)}
+          className="no-print"
+          aria-label="Remove highlight"
+          style={{ border: "none", background: "transparent", color: MUTED, cursor: "pointer", padding: 2, flexShrink: 0 }}
+        >
+          <X size={14} />
+        </button>
       </div>
     </div>
   );
@@ -407,7 +449,7 @@ export default function Page() {
     id: "solution",
     node: (
       <div>
-        <SectionLabel title="The Solution" />
+        <SectionLabel title="The Callbox Solution" />
         <div className="editable-field print-flow-text" style={{ marginBottom: 18 }}>
           <EditableField
             value={cs.solutionIntro}
@@ -523,10 +565,6 @@ export default function Page() {
       });
     });
   }
-
-  flowBlocks.push({ id: "footer", node: <Footer /> });
-
-  const { pages, heroRef, statsRef, blockRefsMap, heroH, statsH } = usePagedLayout(cs, flowBlocks, stage);
 
   if (stage === "upload") {
     return (
@@ -660,12 +698,10 @@ export default function Page() {
           .app-shell { background: ${BG} !important; padding: 0 !important; }
           input, textarea { border: none !important; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-          /* Pages are pre-sized to exactly A4 in JS (usePagedLayout), so each .pdf-page
-             maps to exactly one printed page — no reliance on the browser's own
-             (unreliable) print break heuristics inside this dark, full-bleed layout. */
-          @page { size: A4; margin: 0; }
-          .pdf-page { box-shadow: none !important; margin: 0 !important; border-radius: 0 !important; break-after: page; page-break-after: always; }
-          .pdf-page:last-child { break-after: auto; page-break-after: auto; }
+          /* One continuous document instead of fixed A4 pages — @page auto lets the
+             printed sheet grow to match the full content height. */
+          @page { size: auto; margin: 0; }
+          .pdf-page { box-shadow: none !important; margin: 0 !important; border-radius: 0 !important; }
           .avoid-break { break-inside: avoid !important; page-break-inside: avoid !important; }
         }
         .editable-field { transition: background 0.1s; border-radius: 4px; }
@@ -741,94 +777,37 @@ export default function Page() {
 
       <div className="app-shell" style={{ padding: "24px 16px 80px", display: "flex", justifyContent: "center" }}>
         <div style={{ width: "100%", maxWidth: A4_W }}>
-          {pages.map((blockIds, pageIndex) => {
-            const isFirst = pageIndex === 0;
-            return (
-              <div
-                key={pageIndex}
-                className="pdf-page"
-                style={{
-                  width: A4_W,
-                  minHeight: A4_H,
-                  maxWidth: "100%",
-                  background: SHEET_BG,
-                  boxShadow: "0 4px 40px rgba(0,0,0,0.5)",
-                  borderRadius: 6,
-                  overflow: "hidden",
-                  position: "relative",
-                }}
-              >
-                {isFirst && heroNode}
-                {isFirst && statsNode}
+          <div
+            className="pdf-page"
+            style={{
+              width: A4_W,
+              maxWidth: "100%",
+              background: SHEET_BG,
+              boxShadow: "0 4px 40px rgba(0,0,0,0.5)",
+              borderRadius: 6,
+              overflow: "hidden",
+            }}
+          >
+            {heroNode}
+            {statsNode}
 
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    minHeight: isFirst ? Math.max(A4_H - heroH - statsH, 0) : A4_H,
-                    padding: isFirst ? `24px ${PAGE_PAD_X}px ${PAGE_PAD_Y}px` : `${PAGE_PAD_Y}px ${PAGE_PAD_X}px`,
-                    boxSizing: "border-box",
-                  }}
-                >
-                  {blockIds.map((id) => {
-                    const b = flowBlocks.find((fb) => fb.id === id);
-                    if (!b) return null;
-                    const isFooter = id === "footer";
-                    return (
-                      <div
-                        key={id}
-                        className="avoid-break"
-                        style={
-                          isFooter
-                            ? {
-                                marginTop: "auto",
-                                marginLeft: -PAGE_PAD_X,
-                                marginRight: -PAGE_PAD_X,
-                                marginBottom: -PAGE_PAD_Y,
-                              }
-                            : { marginBottom: BLOCK_GAP }
-                        }
-                      >
-                        {b.node}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Repeats on every page — screen preview and print alike */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/callbox-caret.svg"
-                  alt=""
-                  aria-hidden="true"
-                  style={{ position: "absolute", bottom: 18, right: 18, width: 20, height: 20 }}
-                />
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Off-screen measurement pass — mirrors the exact blocks/widths used above so
-          usePagedLayout can read real rendered heights before committing to page breaks. */}
-      <div aria-hidden="true" style={{ position: "absolute", top: 0, left: -99999, visibility: "hidden", pointerEvents: "none" }}>
-        <div ref={heroRef} style={{ width: A4_W }}>
-          {heroNode}
-        </div>
-        <div ref={statsRef} style={{ width: A4_W }}>
-          {statsNode}
-        </div>
-        <div style={{ width: CONTENT_W }}>
-          {flowBlocks.map((b) => (
             <div
-              key={b.id}
-              ref={(el) => {
-                if (el) blockRefsMap.current.set(b.id, el);
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                padding: `24px ${PAGE_PAD_X}px ${PAGE_PAD_Y}px`,
+                boxSizing: "border-box",
               }}
             >
-              {b.node}
+              {flowBlocks.map((b) => (
+                <div key={b.id} className="avoid-break" style={{ marginBottom: BLOCK_GAP }}>
+                  {b.node}
+                </div>
+              ))}
             </div>
-          ))}
+
+            <Footer />
+          </div>
         </div>
       </div>
     </div>
@@ -909,11 +888,11 @@ const FOOTER_CALL_COLS = [
 function Footer() {
   return (
     <div style={{ background: "#0a0b0d", padding: "26px 48px", position: "relative" }}>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 32 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 32, paddingRight: 100 }}>
         {FOOTER_CALL_COLS.map((col, ci) => (
           <div key={ci}>
             {ci === 0 && (
-              <div style={{ fontSize: 11, fontWeight: 800, color: TEXT, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: YELLOW, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>
                 Call
               </div>
             )}
@@ -932,7 +911,7 @@ function Footer() {
           </div>
         ))}
         <div>
-          <div style={{ fontSize: 11, fontWeight: 800, color: TEXT, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: YELLOW, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>
             Email
           </div>
           <a href="mailto:info@callboxinc.com" style={{ display: "block", fontSize: 10.5, color: TEXT, textDecoration: "none", marginBottom: 4 }}>
@@ -943,6 +922,12 @@ function Footer() {
           </a>
         </div>
       </div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/callbox-logo.svg"
+        alt="Callbox"
+        style={{ position: "absolute", bottom: 26, right: 48, height: 26 }}
+      />
     </div>
   );
 }
@@ -966,54 +951,6 @@ function SectionLabel({ title }: { title: string }) {
       {title}
     </span>
   );
-}
-
-// Packs measured flow blocks into fixed A4 pages. Hero + stats are always the
-// top of page 1; remaining blocks fill left-to-right budget per page, never
-// splitting a block (a section header is glued to its first item/card grid).
-function usePagedLayout(cs: CaseStudy, flowBlocks: { id: string; node: React.ReactNode }[], stage: string) {
-  const heroRef = useRef<HTMLDivElement>(null);
-  const statsRef = useRef<HTMLDivElement>(null);
-  const blockRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
-  // Seed with every block already mounted on page 1 so the first layout
-  // effect measures real DOM heights instead of an empty page (which would
-  // otherwise lock in a bogus "everything fits on one page" result, since
-  // this effect never re-runs after that).
-  const [pages, setPages] = useState<string[][]>(() => [flowBlocks.map((b) => b.id)]);
-  const [heroH, setHeroH] = useState(0);
-  const [statsH, setStatsH] = useState(0);
-
-  useLayoutEffect(() => {
-    const measuredHeroH = heroRef.current?.getBoundingClientRect().height ?? 0;
-    const measuredStatsH = statsRef.current?.getBoundingClientRect().height ?? 0;
-    const CONTINUATION_BUDGET = A4_H - PAGE_PAD_Y * 2;
-
-    const result: string[][] = [[]];
-    let pageIdx = 0;
-    let budget = A4_H - measuredHeroH - measuredStatsH - 24 - PAGE_PAD_Y;
-
-    for (const b of flowBlocks) {
-      const el = blockRefsMap.current.get(b.id);
-      const h = (el?.getBoundingClientRect().height ?? 0) + BLOCK_GAP;
-      if (h > budget && result[pageIdx].length > 0) {
-        pageIdx++;
-        result[pageIdx] = [];
-        budget = CONTINUATION_BUDGET;
-      }
-      result[pageIdx].push(b.id);
-      budget -= h;
-    }
-
-    setHeroH(measuredHeroH);
-    setStatsH(measuredStatsH);
-    setPages(result);
-    // `stage` is included because the offscreen measurement DOM (heroRef,
-    // statsRef, blockRefsMap) only exists once the editor view is mounted —
-    // on first mount (stage === "upload") those refs are all empty, so this
-    // effect must re-run the instant stage flips to "editor".
-  }, [cs, flowBlocks.length, stage]);
-
-  return { pages, heroRef, statsRef, blockRefsMap, heroH, statsH };
 }
 
 function AddLink({ onClick, label, small }: { onClick: () => void; label: string; small?: boolean }) {
