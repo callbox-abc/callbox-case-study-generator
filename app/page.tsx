@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Headset, TrendingUp, Building2, Settings, Megaphone, Target, Upload, FileText, X } from "lucide-react";
 import { extractFromFile } from "@/lib/extract";
 import {
@@ -140,43 +140,55 @@ export default function Page() {
     if (f) handleFile(f);
   };
 
+  // Chrome's print engine has no true auto-height @page: "size: auto" silently falls back to
+  // the physical Letter/A4 size chosen in the print dialog and paginates against it. The global
+  // stylesheet sets a generous fixed-height @page (20000px) as a safety net; below we measure the
+  // actual rendered content and overwrite it with a size that matches exactly, so the export
+  // isn't left with a huge trailing blank area.
+  //
+  // The real bug behind the persistent trailing gap: several "+ Add ..." editor controls (e.g.
+  // "+ Add highlight") sit as the LAST element of their section, right before the Footer, and
+  // carry the .no-print class. If we measure the page while it's still on screen (before
+  // window.print() applies the print stylesheet), those controls are still visible and inflate
+  // the measured height — then they collapse to display:none at actual print time, so the real
+  // content (Footer included) ends up shorter than the @page height we already locked in,
+  // leaving blank space after the footer. The fix is to measure during the "beforeprint" event,
+  // which fires AFTER the browser has applied print styles (.no-print already collapsed), so the
+  // measured height matches exactly what will actually be printed.
+  useEffect(() => {
+    const applyPageSize = () => {
+      const node = pdfPageRef.current;
+      const styleId = "dynamic-page-size";
+      let styleTag = document.getElementById(styleId) as HTMLStyleElement | null;
+      if (!styleTag) {
+        styleTag = document.createElement("style");
+        styleTag.id = styleId;
+      }
+      // The safety-net @page rule lives in a <style> tag rendered inside <body> (part of the JSX
+      // tree), which comes AFTER <head> in document order. Competing @page declarations resolve
+      // by document order (last one wins), so our override must be appended to the END of
+      // <body> — not <head> — or the body-based fallback always wins. appendChild also moves an
+      // existing node to the end if it's already in the DOM, re-asserting it on every print.
+      document.body.appendChild(styleTag);
+      if (node) {
+        const rect = node.getBoundingClientRect();
+        // Firefox's print engine doesn't reliably honor @page size given in px — it can snap the
+        // page box to a nearby standard size. Physical units (in) are handled consistently by
+        // both engines, so convert using the CSS reference pixel ratio (96px = 1in).
+        const PX_PER_IN = 96;
+        // +0.02in only covers sub-pixel/rounding slack.
+        const widthIn = (Math.ceil(rect.width) / PX_PER_IN).toFixed(3);
+        const heightIn = (Math.ceil(rect.height) / PX_PER_IN + 0.02).toFixed(3);
+        styleTag.textContent = `@media print { @page { size: ${widthIn}in ${heightIn}in; margin: 0; } }`;
+      } else {
+        styleTag.textContent = "";
+      }
+    };
+    window.addEventListener("beforeprint", applyPageSize);
+    return () => window.removeEventListener("beforeprint", applyPageSize);
+  }, []);
+
   const printNow = () => {
-    // Chrome's print engine has no true auto-height @page: "size: auto" silently falls back to
-    // the physical Letter/A4 size chosen in the print dialog and paginates against it. The global
-    // stylesheet sets a generous fixed-height @page (20000px) as a safety net; here we measure the
-    // actual rendered content and overwrite it with a size that matches exactly, plus a small
-    // buffer, so the export isn't left with a huge trailing blank area.
-    //
-    // The safety-net @page rule lives in a <style> tag rendered inside <body> (part of the JSX
-    // tree), which comes AFTER <head> in document order. Competing @page declarations resolve by
-    // document order (last one wins), so our override must be appended to the END of <body> — not
-    // <head> — or the body-based fallback always wins regardless of what we set here.
-    const node = pdfPageRef.current;
-    const styleId = "dynamic-page-size";
-    let styleTag = document.getElementById(styleId) as HTMLStyleElement | null;
-    if (!styleTag) {
-      styleTag = document.createElement("style");
-      styleTag.id = styleId;
-    }
-    // appendChild moves an existing node to the end if it's already in the DOM, so this also
-    // re-asserts our tag as the very last element on every print, guaranteeing it wins the cascade.
-    document.body.appendChild(styleTag);
-    if (node) {
-      const rect = node.getBoundingClientRect();
-      // Firefox's print engine doesn't reliably honor @page size given in px — it can snap the
-      // page box to a nearby standard size, leaving a large blank area below the content even
-      // though Chrome renders the exact px size correctly. Physical units (in) are handled
-      // consistently by both engines, so convert using the CSS reference pixel ratio (96px = 1in).
-      const PX_PER_IN = 96;
-      // +0.02in only covers sub-pixel/rounding slack — the cascade fix already guarantees this
-      // tag wins, so a large safety buffer isn't needed and just shows up as a visible blank
-      // strip after the footer.
-      const widthIn = (Math.ceil(rect.width) / PX_PER_IN).toFixed(3);
-      const heightIn = (Math.ceil(rect.height) / PX_PER_IN + 0.02).toFixed(3);
-      styleTag.textContent = `@media print { @page { size: ${widthIn}in ${heightIn}in; margin: 0; } }`;
-    } else {
-      styleTag.textContent = "";
-    }
     window.print();
   };
 
