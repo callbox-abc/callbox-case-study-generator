@@ -444,7 +444,7 @@ export default function Page() {
           </div>
           {p.steps.map((s, si) => (
             <div key={si} style={{ display: "flex", gap: 5, marginBottom: 4, alignItems: "flex-start" }}>
-              <span style={{ color: MUTED_LIGHT, fontSize: 13.5, flexShrink: 0 }}>{si + 1}.</span>
+              <span style={{ color: MUTED_LIGHT, fontSize: 13.5, lineHeight: 1.6, flexShrink: 0 }}>{si + 1}.</span>
               <div className="editable-field" style={{ flex: 1 }}>
                 <EditableField
                   value={s}
