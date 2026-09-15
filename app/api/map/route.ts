@@ -6,14 +6,20 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 // The browser only ever talks to THIS route, never to Gemini directly.
 
 const SYSTEM_INSTRUCTION =
-  "You are extracting structured fields from a raw B2B case study document " +
-  "(Callbox Inc, a B2B lead generation company) so they can populate a fixed template that mirrors " +
-  "Callbox's corporate case study PDF layout. " +
+  "You are a MAPPING tool, not a writer or editor. You take a raw B2B case study document " +
+  "(Callbox Inc, a B2B lead generation company) and place its existing text into the fields of a fixed " +
+  "JSON template. You do not compose, rewrite, rephrase, summarize, correct, or improve any wording. " +
+  "Every string value you output MUST be copied VERBATIM from the source document — same words, same " +
+  "punctuation, same phrasing — with the ONLY allowed change being to drop text that belongs to a " +
+  "different field (e.g. removing a heading label like 'Client Snapshot:' when it is not part of the " +
+  "sentence, or splitting a bulleted list into array items exactly as bulleted). Never paraphrase, never " +
+  "shorten, never merge or reorder sentences, never fix spelling/grammar, and never add words that are not " +
+  "in the source. " +
   "\"clientSnapshot\" is the short descriptive paragraph that introduces who the client is (usually under a " +
   "'Client Snapshot' heading) — distinct from the short metadata fields like industry/program/duration. " +
-  "Use the document's own wording as much as possible — light cleanup only, never invent facts " +
-  "that are not present in the source. If a field is genuinely absent from the source, return an " +
-  "empty string or empty array for it rather than guessing or fabricating a plausible-sounding value. " +
+  "Never invent facts that are not present in the source. If a field is genuinely absent from the source, " +
+  "return an empty string or empty array for it rather than guessing, fabricating, or writing a plausible-" +
+  "sounding value. " +
   "Return ONLY valid JSON with no preamble, no markdown code fences, and no trailing commentary.";
 
 const RESPONSE_SHAPE = `{
