@@ -139,10 +139,11 @@ export default function Page() {
   };
 
   const printNow = () => {
-    // Browsers paginate print output against a fixed physical paper size
-    // (Letter/A4) chosen in the print dialog, regardless of @page { size: auto }.
-    // To get one continuous, unpaginated sheet we measure the actual rendered
-    // content height and inject an explicit @page size matching it.
+    // Chrome's print engine has no true auto-height @page: "size: auto" silently falls back to
+    // the physical Letter/A4 size chosen in the print dialog and paginates against it. The global
+    // stylesheet already sets a generous fixed-height @page (20000px) as a safety net; here we
+    // measure the actual rendered content and overwrite it with a size that matches exactly, plus
+    // a small buffer, so rounding never triggers a trailing blank page.
     const node = pdfPageRef.current;
     const styleId = "dynamic-page-size";
     let styleTag = document.getElementById(styleId) as HTMLStyleElement | null;
@@ -154,8 +155,10 @@ export default function Page() {
     if (node) {
       const rect = node.getBoundingClientRect();
       const widthPx = Math.ceil(rect.width);
-      const heightPx = Math.ceil(rect.height);
+      const heightPx = Math.ceil(rect.height) + 24;
       styleTag.textContent = `@media print { @page { size: ${widthPx}px ${heightPx}px; margin: 0; } }`;
+    } else {
+      styleTag.textContent = "";
     }
     window.print();
   };
@@ -719,10 +722,13 @@ export default function Page() {
           .app-shell { background: ${BG} !important; padding: 0 !important; }
           input, textarea { border: none !important; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-          /* One continuous document instead of fixed A4 pages — @page auto lets the
-             printed sheet grow to match the full content height. */
-          @page { size: auto; margin: 0; }
-          .pdf-page { box-shadow: none !important; margin: 0 !important; border-radius: 0 !important; }
+          /* Chrome's print engine has no true auto-height page: "size: auto" falls back to the
+             physical Letter/A4 size chosen in the print dialog and paginates against it. A fixed
+             page height (overridden per-document by the dynamic-page-size tag in printNow) forces
+             one continuous sheet instead. This is the ONLY @page rule in the app. */
+          @page { size: 816px 20000px; margin: 0; }
+          html, body { height: auto !important; overflow: visible !important; }
+          .pdf-page { box-shadow: none !important; margin: 0 !important; border-radius: 0 !important; overflow: visible !important; height: auto !important; }
           .avoid-break { break-inside: avoid !important; page-break-inside: avoid !important; }
         }
         .editable-field { transition: background 0.1s; border-radius: 4px; }
