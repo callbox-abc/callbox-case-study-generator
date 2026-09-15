@@ -281,19 +281,35 @@ export default function Page() {
     <div style={{ minHeight: "100vh", background: BG, color: TEXT }}>
       <style>{`
         @media print {
+          html, body { background: ${BG} !important; }
           .app-toolbar, .edit-hint, .no-print { display: none !important; }
-          .app-shell { background: #000 !important; padding: 0 !important; }
-          .print-sheet { box-shadow: none !important; margin: 0 !important; width: 100% !important; }
+          .app-shell { background: ${BG} !important; padding: 0 !important; }
+          .print-sheet { box-shadow: none !important; margin: 0 !important; width: 100% !important; overflow: visible !important; }
           input, textarea { border: none !important; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           @page { size: A4; margin: 0; }
+          .avoid-break { break-inside: avoid !important; page-break-inside: avoid !important; }
+          .section-label { break-after: avoid !important; page-break-after: avoid !important; }
+          .print-flow-text { orphans: 3; widows: 3; }
+          .print-page-mark { display: block !important; }
         }
+        .print-page-mark { display: none; }
         .editable-field { transition: background 0.1s; border-radius: 4px; }
         .editable-field:hover { background: rgba(245,185,20,0.08); }
         .editable-field:focus-within { background: rgba(245,185,20,0.12); }
         .editable-field-dark:hover { background: rgba(0,0,0,0.06); }
         .editable-field-dark:focus-within { background: rgba(0,0,0,0.1); }
       `}</style>
+
+      {/* Repeats on every printed page via position: fixed */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/callbox-caret.svg"
+        alt=""
+        aria-hidden="true"
+        className="print-page-mark"
+        style={{ position: "fixed", bottom: 18, right: 18, width: 20, height: 20, zIndex: 9999 }}
+      />
 
       <div
         className="app-toolbar"
@@ -416,6 +432,7 @@ export default function Page() {
             {cs.metrics.map((m, i) => (
               <div
                 key={i}
+                className="avoid-break"
                 style={{
                   textAlign: "center",
                   padding: "30px 18px",
@@ -446,7 +463,7 @@ export default function Page() {
           {/* BODY */}
           <div style={{ padding: "40px 48px" }}>
             <Section title="Client Snapshot">
-              <div className="editable-field">
+              <div className="editable-field print-flow-text">
                 <EditableField
                   value={cs.clientSnapshot}
                   onChange={(v) => setField("clientSnapshot", v)}
@@ -458,7 +475,7 @@ export default function Page() {
             </Section>
 
             <Section title="The Challenge">
-              <div className="editable-field">
+              <div className="editable-field print-flow-text">
                 <EditableField
                   value={cs.challenge}
                   onChange={(v) => setField("challenge", v)}
@@ -470,7 +487,7 @@ export default function Page() {
             </Section>
 
             <Section title="The Solution">
-              <div className="editable-field" style={{ marginBottom: 18 }}>
+              <div className="editable-field print-flow-text" style={{ marginBottom: 18 }}>
                 <EditableField
                   value={cs.solutionIntro}
                   onChange={(v) => setField("solutionIntro", v)}
@@ -485,6 +502,7 @@ export default function Page() {
                   return (
                     <div
                       key={i}
+                      className="avoid-break"
                       style={{ padding: "20px 20px", background: CARD_BG, borderRadius: 10, border: "1px solid " + BORDER }}
                     >
                       <Icon size={26} style={{ color: TEAL, marginBottom: 12, display: "block" }} />
@@ -515,6 +533,7 @@ export default function Page() {
               {cs.programGoals.map((g, i) => (
                 <div
                   key={i}
+                  className="avoid-break"
                   style={{
                     display: "flex",
                     gap: 14,
@@ -559,7 +578,7 @@ export default function Page() {
 
             <Section title="How It Ran">
               {cs.howItRan.map((p, pi) => (
-                <div key={pi}>
+                <div key={pi} className="avoid-break">
                   <div style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "14px 0" }}>
                     <div
                       style={{
@@ -615,6 +634,7 @@ export default function Page() {
               {cs.keyHighlights.map((h, i) => (
                 <div
                   key={i}
+                  className="avoid-break"
                   style={{
                     background: CARD_BG,
                     borderLeft: "4px solid " + YELLOW,
@@ -655,7 +675,7 @@ function HeroGrid({
   setField: (k: keyof CaseStudy, v: any) => void;
 }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 18 }}>
+    <div className="avoid-break" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 18 }}>
       {keys.map((k) => (
         <div key={k}>
           <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.8, color: MUTED_LIGHT, textTransform: "uppercase", marginBottom: 5 }}>
@@ -768,6 +788,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <div style={{ marginBottom: 32 }}>
       <span
+        className="section-label"
         style={{
           display: "inline-block",
           fontSize: 11.5,
