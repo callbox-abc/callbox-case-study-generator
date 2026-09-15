@@ -163,12 +163,17 @@ export default function Page() {
     document.body.appendChild(styleTag);
     if (node) {
       const rect = node.getBoundingClientRect();
-      const widthPx = Math.ceil(rect.width);
-      // +1 only covers sub-pixel rounding from getBoundingClientRect — the cascade fix already
-      // guarantees this tag wins, so a large safety buffer isn't needed and just shows up as a
-      // visible blank strip after the footer.
-      const heightPx = Math.ceil(rect.height) + 1;
-      styleTag.textContent = `@media print { @page { size: ${widthPx}px ${heightPx}px; margin: 0; } }`;
+      // Firefox's print engine doesn't reliably honor @page size given in px — it can snap the
+      // page box to a nearby standard size, leaving a large blank area below the content even
+      // though Chrome renders the exact px size correctly. Physical units (in) are handled
+      // consistently by both engines, so convert using the CSS reference pixel ratio (96px = 1in).
+      const PX_PER_IN = 96;
+      // +0.02in only covers sub-pixel/rounding slack — the cascade fix already guarantees this
+      // tag wins, so a large safety buffer isn't needed and just shows up as a visible blank
+      // strip after the footer.
+      const widthIn = (Math.ceil(rect.width) / PX_PER_IN).toFixed(3);
+      const heightIn = (Math.ceil(rect.height) / PX_PER_IN + 0.02).toFixed(3);
+      styleTag.textContent = `@media print { @page { size: ${widthIn}in ${heightIn}in; margin: 0; } }`;
     } else {
       styleTag.textContent = "";
     }
