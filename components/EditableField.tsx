@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 
 type Props = {
   value: string;
@@ -22,7 +22,7 @@ export default function EditableField({ value, onChange, placeholder, multiline,
     el.style.height = el.scrollHeight + "px";
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     autoSize();
   }, [value]);
 
