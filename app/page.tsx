@@ -979,16 +979,16 @@ function Loader() {
 
 const FOOTER_CALL_COLS = [
   [
-    { country: "USA", number: "+1 888 810 7464" },
-    { country: "UK", number: "+44 207.442.5066" },
-    { country: "AUSTRALIA", number: "+61 2 9037 2248" },
-    { country: "COLOMBIA", number: "+57 601 508 4456" },
+    { country: "North America", number: "+1 888 810 7464" },
+    { country: "Colombia", number: "+57 601 508 4456" },
+    { country: "Europe", number: "+44 (207) 442 5066" },
   ],
   [
-    { country: "NEW ZEALAND", number: "+64 9914-3122" },
-    { country: "SINGAPORE", number: "+65 31591 112" },
-    { country: "MALAYSIA", number: "+61 2 9037 2248" },
-    { country: "HONG KONG", number: "+57 601 508 4456" },
+    { country: "Singapore", number: "+65 3159 1112" },
+    { country: "Australia", number: "+61 (02) 9037 2248" },
+    { country: "Hong Kong", number: "+852 3678 6708" },
+    { country: "New Zealand", number: "+64 9914 3122" },
+    
   ],
 ];
 
