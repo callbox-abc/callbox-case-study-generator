@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory } from "@google/generative-ai";
+import { createClient } from "@/lib/supabase/server";
 
 // This route runs ONLY on the server (Vercel serverless function).
 // GEMINI_API_KEY is read from process.env — it is never sent to the browser.
@@ -17,6 +18,10 @@ const SYSTEM_INSTRUCTION =
   "in the source. " +
   "\"clientSnapshot\" is the short descriptive paragraph that introduces who the client is (usually under a " +
   "'Client Snapshot' heading) — distinct from the short metadata fields like industry/program/duration. " +
+  "\"pdfTitle\" is the value of a distinct 'PDF TITLE' labeled field/row in the source document (often found " +
+  "in a metadata table alongside rows like 'Website', 'Page Title (H1)', 'SEO Title', 'Meta Description') — " +
+  "it is NOT the same as \"title\", which is the on-page case study headline. If there is no 'PDF TITLE' " +
+  "labeled field in the source, return an empty string for pdfTitle rather than reusing \"title\". " +
   "Never invent facts that are not present in the source. If a field is genuinely absent from the source, " +
   "return an empty string or empty array for it rather than guessing, fabricating, or writing a plausible-" +
   "sounding value. " +
@@ -24,6 +29,7 @@ const SYSTEM_INSTRUCTION =
 
 const RESPONSE_SHAPE = `{
   "title": string,
+  "pdfTitle": string,
   "industry": string,
   "targetIndustries": string,
   "program": string,
@@ -76,6 +82,11 @@ export async function POST(req: NextRequest) {
   // offenders before sending the text along.
   const sanitized = sanitizeExtractedText(truncated);
 
+  // Few-shot prompting via a stored example library — NOT fine-tuning or retraining.
+  // Gemini's weights are never touched; this is the app choosing better in-context examples
+  // to send with each request, drawn from real user corrections captured after mapping.
+  const fewShotExamples = await getFewShotExamples();
+
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const safetySettings = [
@@ -96,6 +107,7 @@ export async function POST(req: NextRequest) {
 
     const prompt =
       `Map the document text below into this exact JSON shape:\n${RESPONSE_SHAPE}\n\n` +
+      fewShotExamples +
       `DOCUMENT TEXT:\n${sanitized}`;
 
     const result = await model.generateContent(prompt);
@@ -130,6 +142,49 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     const message = err?.message || "Unknown error calling Gemini.";
     return NextResponse.json({ error: message }, { status: 502 });
+  }
+}
+
+// Pulls a small, bounded number of past mapping corrections to include as in-context
+// examples. Prioritizes was_corrected=true rows — cases where the model's first pass needed
+// fixing are more informative to show than rows the model already got right on the first
+// try. Capped at 3 examples with truncated source text so the prompt size stays bounded no
+// matter how large the example library grows.
+const MAX_FEW_SHOT_EXAMPLES = 3;
+const MAX_EXAMPLE_SOURCE_LENGTH = 3000;
+
+async function getFewShotExamples(): Promise<string> {
+  const supabase = createClient();
+  if (!supabase) return "";
+
+  try {
+    const { data, error } = await supabase
+      .from("mapping_examples")
+      .select("source_text, mapped_output")
+      .order("was_corrected", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(MAX_FEW_SHOT_EXAMPLES);
+
+    if (error || !data || data.length === 0) return "";
+
+    const blocks = data.map((row: any, i: number) => {
+      const truncatedSource = String(row.source_text || "").slice(0, MAX_EXAMPLE_SOURCE_LENGTH);
+      return (
+        `Example ${i + 1}:\n` +
+        `Input: ${truncatedSource}\n` +
+        `Correct output: ${JSON.stringify(row.mapped_output)}\n`
+      );
+    });
+
+    return (
+      "Here are examples of how similar documents should be mapped:\n" +
+      blocks.join("\n") +
+      "\n" +
+      "These examples are past corrections — follow the same mapping patterns for the new document below.\n\n"
+    );
+  } catch (err) {
+    console.log("[v0] Failed to fetch few-shot examples:", (err as any)?.message);
+    return "";
   }
 }
 
