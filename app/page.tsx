@@ -51,6 +51,15 @@ export default function Page() {
   const fileRef = useRef<HTMLInputElement>(null);
   const pdfPageRef = useRef<HTMLDivElement>(null);
 
+  // Tracks the raw source text and the model's first-pass output for the current session, so
+  // that when the user finishes (Download PDF / Start over) we can save the FINAL, user-approved
+  // field values as a few-shot example for future /api/map calls. This is few-shot prompting —
+  // real corrected examples included as in-context examples on later requests — never model
+  // fine-tuning or retraining; Gemini's weights are never touched.
+  const [sourceText, setSourceText] = useState("");
+  const [originalMapped, setOriginalMapped] = useState<CaseStudy | null>(null);
+  const savedExampleRef = useRef(false);
+
   // The browser/print document title must come from the document's own "PDF Title" field
   // (a distinct metadata field in the source, separate from the on-page case study headline
   // shown in the hero). Fall back to the on-page title, then the app name, if it's empty.
@@ -100,6 +109,9 @@ export default function Page() {
   const runMapping = async (text: string) => {
     setStage("mapping");
     setMapError("");
+    setSourceText(text);
+    setOriginalMapped(null);
+    savedExampleRef.current = false;
     try {
       const res = await fetch("/api/map", {
         method: "POST",
@@ -112,12 +124,30 @@ export default function Page() {
         setStage("edit");
         return;
       }
-      setCs(mergeMapped(json.data));
+      const merged = mergeMapped(json.data);
+      setCs(merged);
+      setOriginalMapped(merged);
       setStage("edit");
     } catch (e) {
       setMapError("Could not reach the mapping service. You can fill in fields manually below.");
       setStage("edit");
     }
+  };
+
+  // Best-effort, fire-and-forget: saves the FINAL field values (after any manual edits) as a
+  // few-shot example. Only meaningful for documents that actually went through the mapper —
+  // a blank/manual start has no source text and nothing to compare corrections against.
+  // Guarded to run at most once per session so re-printing or re-opening "Start over" doesn't
+  // create duplicate rows.
+  const saveMappingExample = () => {
+    if (!sourceText || !originalMapped || savedExampleRef.current) return;
+    savedExampleRef.current = true;
+    const wasCorrected = JSON.stringify(cs) !== JSON.stringify(originalMapped);
+    fetch("/api/save-example", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceText, mappedOutput: cs, wasCorrected }),
+    }).catch(() => {});
   };
 
   const handleFile = async (file: File | undefined) => {
@@ -137,6 +167,9 @@ export default function Page() {
 
   const startBlank = () => {
     setCs(EMPTY_CASE);
+    setSourceText("");
+    setOriginalMapped(null);
+    savedExampleRef.current = false;
     setStage("edit");
   };
 
@@ -201,6 +234,7 @@ export default function Page() {
   };
 
   const printNow = () => {
+    saveMappingExample();
     applyDynamicPageSize();
     window.print();
   };
@@ -843,7 +877,10 @@ export default function Page() {
       >
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <button
-            onClick={() => setStage("upload")}
+            onClick={() => {
+              saveMappingExample();
+              setStage("upload");
+            }}
             style={{ ...btnGhost, padding: "7px 14px", fontSize: 12 }}
           >
             ← Start over
