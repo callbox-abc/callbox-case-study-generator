@@ -988,7 +988,6 @@ const FOOTER_CALL_COLS = [
     { country: "Australia", number: "+61 (02) 9037 2248" },
     { country: "Hong Kong", number: "+852 3678 6708" },
     { country: "New Zealand", number: "+64 9914 3122" },
-    
   ],
 ];
 
