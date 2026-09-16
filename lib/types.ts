@@ -4,6 +4,7 @@ export type Metric = { value: string; label: string };
 
 export type CaseStudy = {
   title: string;
+  pdfTitle: string;
   industry: string;
   targetIndustries: string;
   program: string;
@@ -24,6 +25,7 @@ export type CaseStudy = {
 
 export const EMPTY_CASE: CaseStudy = {
   title: "",
+  pdfTitle: "",
   industry: "",
   targetIndustries: "",
   program: "",

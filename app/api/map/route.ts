@@ -17,6 +17,10 @@ const SYSTEM_INSTRUCTION =
   "in the source. " +
   "\"clientSnapshot\" is the short descriptive paragraph that introduces who the client is (usually under a " +
   "'Client Snapshot' heading) — distinct from the short metadata fields like industry/program/duration. " +
+  "\"pdfTitle\" is the value of a distinct 'PDF TITLE' labeled field/row in the source document (often found " +
+  "in a metadata table alongside rows like 'Website', 'Page Title (H1)', 'SEO Title', 'Meta Description') — " +
+  "it is NOT the same as \"title\", which is the on-page case study headline. If there is no 'PDF TITLE' " +
+  "labeled field in the source, return an empty string for pdfTitle rather than reusing \"title\". " +
   "Never invent facts that are not present in the source. If a field is genuinely absent from the source, " +
   "return an empty string or empty array for it rather than guessing, fabricating, or writing a plausible-" +
   "sounding value. " +
@@ -24,6 +28,7 @@ const SYSTEM_INSTRUCTION =
 
 const RESPONSE_SHAPE = `{
   "title": string,
+  "pdfTitle": string,
   "industry": string,
   "targetIndustries": string,
   "program": string,

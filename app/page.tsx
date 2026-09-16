@@ -51,6 +51,13 @@ export default function Page() {
   const fileRef = useRef<HTMLInputElement>(null);
   const pdfPageRef = useRef<HTMLDivElement>(null);
 
+  // The browser/print document title must come from the document's own "PDF Title" field
+  // (a distinct metadata field in the source, separate from the on-page case study headline
+  // shown in the hero). Fall back to the on-page title, then the app name, if it's empty.
+  useEffect(() => {
+    document.title = cs.pdfTitle || cs.title || "Callbox Case Study Generator";
+  }, [cs.pdfTitle, cs.title]);
+
   const setField = (k: keyof CaseStudy, v: any) => setCs((p) => ({ ...p, [k]: v }));
   const setArrField = (k: "keyHighlights" | "programGoals", i: number, v: string) =>
     setCs((p) => ({ ...p, [k]: p[k].map((x, idx) => (idx === i ? v : x)) }));
