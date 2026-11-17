@@ -158,7 +158,8 @@ export default function CallboxOneImport({ up, onClose }: { up: (fn: (d: RevampC
       });
       setMsg(
         `Imported ${c.campaignName}: ${json.period.months} months (${json.period.from} to ${json.period.to}). ` +
-          (json.notes?.length ? json.notes.join(" ") : "")
+          (json.notes?.length ? json.notes.join(" ") + " " : "") +
+          "Next: click \"Draft missing text with AI\" to fill the empty sections from these numbers."
       );
     } catch (e: any) {
       setErr(true);
