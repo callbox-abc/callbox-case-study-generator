@@ -172,16 +172,27 @@ export default function Page() {
       return;
     }
 
+    // Measure the PRINT layout: hide edit-only elements AND show print-only ones (e.g. the
+    // highlighted H1 replaces the editable headline in print). Missing either makes the measured
+    // height wrong, and the overflow lands on a second, almost empty page.
     const noPrintEls = Array.from(document.querySelectorAll<HTMLElement>(".no-print"));
+    const printOnlyEls = Array.from(document.querySelectorAll<HTMLElement>(".print-only"));
     const originalDisplay = noPrintEls.map((el) => el.style.display);
+    const originalPrintOnly = printOnlyEls.map((el) => el.style.display);
     noPrintEls.forEach((el) => {
       el.style.display = "none";
+    });
+    printOnlyEls.forEach((el) => {
+      el.style.display = "block";
     });
 
     const rect = node.getBoundingClientRect();
 
     noPrintEls.forEach((el, i) => {
       el.style.display = originalDisplay[i];
+    });
+    printOnlyEls.forEach((el, i) => {
+      el.style.display = originalPrintOnly[i];
     });
 
     // Firefox's print engine doesn't reliably honor @page size given in px — it can snap the
