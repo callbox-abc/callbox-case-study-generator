@@ -5,6 +5,7 @@ import { Upload, FileText } from "lucide-react";
 import { extractFromFile } from "@/lib/extract";
 import { copyText } from "@/lib/types";
 import { RevampCaseStudy, EMPTY_REVAMP, normalizeRevamp, revampPlainText } from "@/lib/revamp";
+import { applyDrafted, pendingFields } from "@/lib/narrative";
 import RevampSheet, { C as SHEET } from "@/components/revamp/RevampSheet";
 import CallboxOneImport from "@/components/revamp/CallboxOneImport";
 
@@ -64,17 +65,45 @@ export default function Page() {
 
   // "Draft missing text with AI": fills only EMPTY narrative fields from the sheet's own data.
   // The server drops any sentence whose numbers are not in the data (lib/narrative.ts).
+  // It runs automatically after a document is mapped or CallboxOne data is imported, and the
+  // fields being drafted show skeletons until the result arrives.
   const [aiState, setAiState] = useState<"idle" | "drafting" | "done" | "error">("idle");
   const [aiMsg, setAiMsg] = useState("");
   const [aiDrafted, setAiDrafted] = useState<string[]>([]);
-  const draftWithAi = async () => {
+  const [pending, setPending] = useState<Set<string>>(new Set());
+  // Latest values for async work (state captured in a closure would be stale).
+  const csRef = useRef(cs);
+  csRef.current = cs;
+  const sourceTextRef = useRef("");
+  const draftingRef = useRef(false);
+  const rerunRef = useRef(false);
+  const aiUsedRef = useRef(false);
+  const [autoDraftTick, setAutoDraftTick] = useState(0);
+  const requestAutoDraft = () => setAutoDraftTick((t) => t + 1);
+
+  const draftWithAi = async (auto = false) => {
+    if (draftingRef.current) {
+      rerunRef.current = true; // a draft is already running: draft once more when it finishes
+      return;
+    }
+    const keys = pendingFields(csRef.current);
+    if (keys.size === 0) {
+      if (!auto) {
+        setAiState("done");
+        setAiDrafted([]);
+        setAiMsg("Nothing to draft: every field the data supports already has text.");
+      }
+      return;
+    }
+    draftingRef.current = true;
+    setPending(keys);
     setAiState("drafting");
-    setAiMsg("Drafting the empty sections from the data… (about 20 to 40 seconds)");
+    setAiMsg(`Drafting ${keys.size} empty field${keys.size === 1 ? "" : "s"} with AI from the data… (about 20 to 40 seconds)`);
     try {
       const res = await fetch("/api/draft-narrative", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sheet: cs, sourceText }),
+        body: JSON.stringify({ sheet: csRef.current, sourceText: sourceTextRef.current }),
       });
       const text = await res.text();
       let json: any;
@@ -83,27 +112,47 @@ export default function Page() {
       } catch {
         throw new Error(
           res.status === 504 || /an error occurred/i.test(text)
-            ? "The AI took too long to answer. Try again."
+            ? "The AI took too long to answer. Use “Draft missing text with AI” to try again."
             : `Server error (HTTP ${res.status}).`
         );
       }
+      // An automatic run with nothing to draft from (e.g. a blank sheet) is not an error.
+      if (auto && res.status === 400) {
+        setAiState("idle");
+        return;
+      }
       if (!res.ok) throw new Error(json.error || "Drafting failed.");
-      setCs(normalizeRevamp(json.sheet));
+      // Apply only to fields that are still empty, so edits made meanwhile are kept.
+      setCs((prev) => applyDrafted(prev, normalizeRevamp(json.sheet), keys));
       const drafted: string[] = json.drafted || [];
-      setAiDrafted(drafted);
+      if (drafted.length) aiUsedRef.current = true;
+      setAiDrafted((prev) => Array.from(new Set([...prev, ...drafted])));
       const dropped = Number(json.droppedSentences) || 0;
       setAiMsg(
         (drafted.length
           ? `AI drafted ${drafted.length} field${drafted.length === 1 ? "" : "s"}. Review them before downloading or sending to the CMS.`
-          : "Nothing to draft: every field the data supports already has text.") +
+          : "The AI had nothing it could ground in the data for the empty fields.") +
           (dropped ? ` ${dropped} sentence${dropped === 1 ? " was" : "s were"} removed because their numbers weren't in the data.` : "")
       );
       setAiState("done");
     } catch (e: any) {
       setAiMsg(e?.message || "Drafting failed.");
       setAiState("error");
+    } finally {
+      setPending(new Set());
+      draftingRef.current = false;
+      if (rerunRef.current) {
+        rerunRef.current = false;
+        requestAutoDraft();
+      }
     }
   };
+
+  // Runs after render, so csRef already holds the freshly mapped/imported data.
+  useEffect(() => {
+    if (autoDraftTick > 0) draftWithAi(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoDraftTick]);
 
   // The browser/print document title must come from the document's own "PDF Title" field
   // (a distinct metadata field in the source, separate from the on-page case study headline
@@ -115,7 +164,9 @@ export default function Page() {
   const runMapping = async (text: string) => {
     setStage("mapping");
     setMapError("");
+    resetAi();
     setSourceText(text);
+    sourceTextRef.current = text;
     setOriginalMapped(null);
     savedExampleRef.current = false;
     try {
@@ -134,6 +185,7 @@ export default function Page() {
       setCs(merged);
       setOriginalMapped(merged);
       setStage("edit");
+      requestAutoDraft();
     } catch (e) {
       setMapError("Could not reach the mapping service. You can fill in fields manually below.");
       setStage("edit");
@@ -146,7 +198,8 @@ export default function Page() {
   // Guarded to run at most once per session so re-printing or re-opening "Start over" doesn't
   // create duplicate rows.
   const saveMappingExample = () => {
-    if (!sourceText || !originalMapped || savedExampleRef.current) return;
+    // Sessions with AI-drafted text are not saved: the mapper must only learn verbatim mapping.
+    if (!sourceText || !originalMapped || savedExampleRef.current || aiUsedRef.current) return;
     savedExampleRef.current = true;
     const wasCorrected = JSON.stringify(cs) !== JSON.stringify(originalMapped);
     fetch("/api/save-example", {
@@ -171,7 +224,16 @@ export default function Page() {
     }
   };
 
+  const resetAi = () => {
+    setAiState("idle");
+    setAiDrafted([]);
+    setPending(new Set());
+    aiUsedRef.current = false;
+    sourceTextRef.current = "";
+  };
+
   const startBlank = () => {
+    resetAi();
     setCs(EMPTY_REVAMP);
     setSourceText("");
     setOriginalMapped(null);
@@ -481,6 +543,10 @@ export default function Page() {
         .ef input::placeholder, .ef textarea::placeholder { color: rgba(107,107,107,0.75); }
         .ef-dark input::placeholder, .ef-dark textarea::placeholder { color: rgba(217,214,207,0.5); }
         @media print { .ef input::placeholder, .ef textarea::placeholder { color: transparent; } }
+        .sk { background: linear-gradient(90deg, rgba(35,31,32,0.06) 25%, rgba(35,31,32,0.13) 45%, rgba(35,31,32,0.06) 65%); background-size: 400% 100%; animation: skShimmer 1.4s ease-in-out infinite; }
+        .sk-dark { background: linear-gradient(90deg, rgba(255,255,255,0.07) 25%, rgba(255,255,255,0.16) 45%, rgba(255,255,255,0.07) 65%); background-size: 400% 100%; }
+        @keyframes skShimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+        @media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
         .editable-field { transition: background 0.1s; border-radius: 4px; }
         .editable-field:hover { background: rgba(245,185,20,0.08); }
         .editable-field:focus-within { background: rgba(245,185,20,0.12); }
@@ -528,7 +594,7 @@ export default function Page() {
             {showImport ? "Hide CallboxOne import" : "Import from CallboxOne"}
           </button>
           <button
-            onClick={draftWithAi}
+            onClick={() => draftWithAi(false)}
             disabled={aiState === "drafting"}
             style={{ ...btnGhost, padding: "8px 16px", fontSize: 12, borderColor: YELLOW, color: YELLOW, opacity: aiState === "drafting" ? 0.6 : 1 }}
           >
@@ -547,7 +613,7 @@ export default function Page() {
         </div>
       </div>
 
-      {showImport && <CallboxOneImport up={up} onClose={() => setShowImport(false)} />}
+      {showImport && <CallboxOneImport up={up} onClose={() => setShowImport(false)} onImported={requestAutoDraft} />}
 
       {aiState !== "idle" && (
         <div
@@ -651,7 +717,7 @@ export default function Page() {
               overflow: "hidden",
             }}
           >
-            <RevampSheet r={cs} up={up} />
+            <RevampSheet r={cs} up={up} pending={pending} />
             <Footer />
           </div>
         </div>

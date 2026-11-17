@@ -69,7 +69,15 @@ const post = (body: unknown) =>
 
 // "Import numbers from CallboxOne": fills the data sections (hero stats, period/channel facts,
 // channels, quarters, funnel) from the campaign record. Narrative text is never touched.
-export default function CallboxOneImport({ up, onClose }: { up: (fn: (d: RevampCaseStudy) => void) => void; onClose: () => void }) {
+export default function CallboxOneImport({
+  up,
+  onClose,
+  onImported,
+}: {
+  up: (fn: (d: RevampCaseStudy) => void) => void;
+  onClose: () => void;
+  onImported?: () => void;
+}) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<Campaign[]>([]);
   const [busy, setBusy] = useState<"" | "search" | "import">("");
@@ -159,8 +167,9 @@ export default function CallboxOneImport({ up, onClose }: { up: (fn: (d: RevampC
       setMsg(
         `Imported ${c.campaignName}: ${json.period.months} months (${json.period.from} to ${json.period.to}). ` +
           (json.notes?.length ? json.notes.join(" ") + " " : "") +
-          "Next: click \"Draft missing text with AI\" to fill the empty sections from these numbers."
+          "The AI is now drafting the empty sections from these numbers."
       );
+      onImported?.();
     } catch (e: any) {
       setErr(true);
       setMsg(e?.message || "Import failed.");
