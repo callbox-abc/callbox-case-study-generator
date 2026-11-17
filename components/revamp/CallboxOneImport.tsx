@@ -152,6 +152,9 @@ export default function CallboxOneImport({ up, onClose }: { up: (fn: (d: RevampC
         d.progression.chartTitle = d.progression.chartTitle || p.progression.chartTitle;
         d.progression.chartMeta = p.progression.chartMeta;
         d.funnel.stages = p.funnel.stages;
+        if (p.howItRan.roles.length) d.howItRan.roles = p.howItRan.roles;
+        d.howItRan.rolesFootnote = d.howItRan.rolesFootnote || p.howItRan.rolesFootnote;
+        d.methodologyNote = d.methodologyNote || p.methodologyNote;
       });
       setMsg(
         `Imported ${c.campaignName}: ${json.period.months} months (${json.period.from} to ${json.period.to}). ` +
