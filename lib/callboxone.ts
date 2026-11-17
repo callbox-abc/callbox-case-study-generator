@@ -227,7 +227,7 @@ export function buildPatch(
   const period = `${MONTHS[startD.getUTCMonth()]} ${startD.getUTCFullYear()} to ${MONTHS[endD.getUTCMonth()]} ${endD.getUTCFullYear()}, ${months} months`;
 
   const heroStats = [
-    { value: fmt(total.sql), label: "Sales-qualified appointments" },
+    ...(total.sql > 0 ? [{ value: fmt(total.sql), label: "Sales-qualified appointments" }] : []),
     ...(total.er > 0 ? [{ value: fmt(total.er), label: "Event registrations" }] : []),
     ...(total.liReplies > 0 ? [{ value: fmt(total.liReplies), label: "LinkedIn replies from target buyers" }] : []),
     ...(total.voiceCalls > 0 ? [{ value: fmt(total.voiceCalls), label: "Calls placed" }] : []),

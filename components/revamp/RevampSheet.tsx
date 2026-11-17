@@ -119,6 +119,15 @@ function Bar({ value, max, tone, dark }: { value: number | null; max: number; to
 
 const maxOf = (xs: (number | null)[]) => xs.reduce<number>((m, x) => (x !== null && x > m ? x : m), 0);
 
+// A number that is empty or 0 is "no number": its label, value and bar stay out of the PDF.
+// On screen the item stays (dimmed) so someone can still fill it in.
+export const hasNum = (v: number | null) => v !== null && v > 0;
+export const statHasValue = (v: string) => {
+  const t = (v || "").trim();
+  return t !== "" && !/^0+([.,]0+)?\s*%?$/.test(t);
+};
+const dim = (ok: boolean): React.CSSProperties => (ok ? {} : { opacity: 0.45 });
+
 /* -------------------------------- skeletons (AI drafting) -------------------------------- */
 
 // Shimmer placeholder shown in a field while the AI drafts it. Screen only (never printed).
@@ -299,9 +308,9 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
       {sk("subDek", 1, true) ?? <T dark value={r.subDek} onChange={(v) => up((d) => { d.subDek = v; })} placeholder="Sub-dek (optional)" multiline
         style={{ fontSize: 13, lineHeight: 1.6, color: C.onDarkMute, maxWidth: 620, marginTop: 6 }} />}
 
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.max(1, Math.min(4, r.heroStats.length || 1))}, minmax(0, 1fr))`, gap: 12, marginTop: 24 }}>
+      <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
         {r.heroStats.map((s, i) => (
-          <div key={i} className="avoid-break" style={{ position: "relative", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.14)", borderTop: "3px solid " + C.yellow, borderRadius: 12, padding: "14px 14px 12px" }}>
+          <div key={i} className={statHasValue(s.value) ? "avoid-break" : "no-print"} style={{ flex: "1 1 0", minWidth: 0, position: "relative", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.14)", borderTop: "3px solid " + C.yellow, borderRadius: 12, padding: "14px 14px 12px", ...dim(statHasValue(s.value)) }}>
             <div style={{ position: "absolute", top: 4, right: 4 }}><Del dark label="Remove stat" onClick={() => up((d) => { d.heroStats.splice(i, 1); })} /></div>
             <T dark value={s.value} onChange={(v) => up((d) => { d.heroStats[i].value = v; })} placeholder="0"
               style={{ ...h2(true), fontSize: 30, lineHeight: 1, color: i === 0 ? C.yellow : C.white }} />
@@ -364,7 +373,7 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
               <T value={row.name} onChange={(v) => up((d) => { d.channels.rows[i].name = v; })} placeholder="Channel" style={{ ...h2(), fontSize: 17 }} />
               <T value={row.activity} onChange={(v) => up((d) => { d.channels.rows[i].activity = v; })} placeholder="Activity line" multiline style={{ ...smallS(), fontSize: 11.5 }} />
             </div>
-            <div>
+            <div className={hasNum(row.appointments) ? "" : "no-print"} style={dim(hasNum(row.appointments))}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
                 <Mono style={{ fontSize: 9 }}>Appointments produced</Mono>
                 <Num value={row.appointments} onChange={(v) => up((d) => { d.channels.rows[i].appointments = v; })} style={{ ...h2(), fontSize: 18 }} />
@@ -428,14 +437,14 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
         </>
       )}
 
-      <div className={hr.roles.length ? "" : "no-print"} style={{ marginTop: 24 }}>
+      <div className={hr.roles.some((x) => hasNum(x.count)) ? "" : "no-print"} style={{ marginTop: 24 }}>
         {sk("howItRan.rolesHeading", 1) ?? <T value={hr.rolesHeading} onChange={(v) => up((d) => { d.howItRan.rolesHeading = v; })} placeholder="Roles heading (optional)" multiline style={{ ...h2(), fontSize: 19 }} />}
         {sk("howItRan.rolesIntro", 2) ?? <T value={hr.rolesIntro} onChange={(v) => up((d) => { d.howItRan.rolesIntro = v; })} placeholder="Roles intro" multiline style={{ ...smallS(), marginTop: 4 }} />}
         <div className="avoid-break" style={{ ...cardS, marginTop: 12 }}>
           <Mono style={{ marginBottom: 12 }}>Appointments by role{rolesTotal ? `, all ${rolesTotal.toLocaleString("en-US")}` : ""}</Mono>
           <div style={{ display: "grid", gap: 9 }}>
             {hr.roles.map((ro, i) => (
-              <div key={i}>
+              <div key={i} className={hasNum(ro.count) ? "" : "no-print"} style={dim(hasNum(ro.count))}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 4 }}>
                   <div style={{ flex: 1 }}>
                     <T value={ro.role} onChange={(v) => up((d) => { d.howItRan.roles[i].role = v; })} placeholder="Role" style={{ fontSize: 12.5, fontWeight: i === 0 ? 700 : 500, color: C.ink }} />
@@ -475,9 +484,9 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
               style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: "0.08em", textTransform: "uppercase", color: C.mute, textAlign: "right" }} />
           </div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(6, Math.max(1, pg.quarters.length))}, minmax(0, 1fr))`, gap: 14 }}>
+        <div style={{ display: "flex", gap: 14 }}>
           {pg.quarters.map((q, i) => (
-            <div key={i} style={{ display: "flex", flexDirection: "column", paddingLeft: q.isPeak ? 10 : 0, borderLeft: q.isPeak ? "3px solid " + C.yellow : undefined }}>
+            <div key={i} className={hasNum(q.count) ? "" : "no-print"} style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", paddingLeft: q.isPeak ? 10 : 0, borderLeft: q.isPeak ? "3px solid " + C.yellow : undefined, ...dim(hasNum(q.count)) }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <T value={q.label} onChange={(v) => up((d) => { d.progression.quarters[i].label = v; })} placeholder="Q1 2026"
                   style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600, color: q.isPeak ? C.ink : C.mute }} />
@@ -517,10 +526,10 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
       {sk("funnel.intro", 2) ?? <T value={fn.intro} onChange={(v) => up((d) => { d.funnel.intro = v; })} placeholder="Intro" multiline style={bodyS()} />}
       <div style={{ ...cardS, padding: 0, marginTop: 14, overflow: "hidden" }}>
         {fn.stages.map((st, i) => {
-          const isWon = st.value !== null && i === fn.stages.length - 1 && /closed\s*won/i.test(st.name);
+          const isWon = hasNum(st.value) && i === fn.stages.length - 1 && /closed\s*won/i.test(st.name);
           return (
-            <div key={i} className={st.value === null ? "no-print avoid-break" : "avoid-break"}
-              style={{ display: "flex", gap: 14, alignItems: "center", padding: "12px 18px", borderBottom: i < fn.stages.length - 1 ? "1px solid " + C.line : undefined, background: isWon ? C.dark : undefined, color: isWon ? C.white : C.ink, opacity: st.value === null ? 0.6 : 1 }}>
+            <div key={i} className={hasNum(st.value) ? "avoid-break" : "no-print avoid-break"}
+              style={{ display: "flex", gap: 14, alignItems: "center", padding: "12px 18px", borderBottom: i < fn.stages.length - 1 ? "1px solid " + C.line : undefined, background: isWon ? C.dark : undefined, color: isWon ? C.white : C.ink, opacity: hasNum(st.value) ? 1 : 0.6 }}>
               <Mono color={isWon ? C.yellow : C.mute}>{String(i + 1).padStart(2, "0")}</Mono>
               <div style={{ flex: 1 }}>
                 <T dark={isWon} value={st.name} onChange={(v) => up((d) => { d.funnel.stages[i].name = v; })} placeholder="Stage" style={{ fontSize: 13.5, fontWeight: 700 }} />
