@@ -206,10 +206,13 @@ export function plainWords(t: string): string {
     .trim();
 }
 
+// Share words are fine next to the real number ("most, 87 of 111") but not instead of it.
+const VAGUE_SHARE = /\b(large|vast|clear|overwhelming|strong) majority\b|\bmajority of\b|\bthe bulk of\b|\ba (large|big|sizable|substantial) (share|portion|part|chunk)\b|\bmost of (the )?(program|campaign|appointments|results|meetings|pipeline)\b/i;
+
 export function dropVague(text: string, dropped: { n: number }): string {
   const sentences = text.split(/(?<=[.!?])\s+/);
   const kept = sentences.filter((s) => {
-    const ok = !VAGUE_CLAIM.test(s);
+    const ok = !VAGUE_CLAIM.test(s) && !(VAGUE_SHARE.test(s) && !/\d/.test(s));
     if (!ok) dropped.n += 1;
     return ok;
   });

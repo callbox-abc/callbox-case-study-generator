@@ -21,6 +21,7 @@ export async function GET(req: NextRequest) {
         campaignName: c.campaignName,
         clientName: c.clientName,
         teamLeader: c.teamLeader || null,
+        timezone: c.timezone || null,
         start: start ? start.toISOString().slice(0, 7) : null,
       };
     });

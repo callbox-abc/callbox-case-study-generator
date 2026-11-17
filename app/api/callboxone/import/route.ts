@@ -5,6 +5,8 @@ import {
   quarterWindows,
   sanitizeTotals,
   sanitizeWindow,
+  listSummary,
+  sanitizeListSummary,
   startFromCampaignCode,
   totalsFromReport,
   withCallboxOne,
@@ -56,6 +58,15 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ totals: totalsFromReport(report, clientAccountId) });
       }
 
+      case "lists": {
+        // Counts and list groups only; list names (often data-vendor names) are never returned.
+        const clientId = Number(body.clientId);
+        const clientAccountId = Number(body.clientAccountId);
+        if (!clientId) return bad("Invalid lists request.");
+        const res = await withCallboxOne((call) => call("list_client_lists", { clientId }));
+        return NextResponse.json({ lists: listSummary(res, clientAccountId) });
+      }
+
       case "progression": {
         const clientId = Number(body.clientId);
         if (!clientId || !DATE.test(body.from) || !DATE.test(body.to)) return bad("Invalid progression request.");
@@ -78,7 +89,12 @@ export async function POST(req: NextRequest) {
           campaignName: String(c.campaignName || "").slice(0, 80),
           clientName: String(c.clientName || "").slice(0, 200),
         };
-        return NextResponse.json(buildPatch(campaign, windows, perWindow, body.progression || {}));
+        return NextResponse.json(
+          buildPatch(campaign, windows, perWindow, body.progression || {}, {
+            lists: sanitizeListSummary(body.lists),
+            timezone: typeof c.timezone === "string" ? c.timezone.slice(0, 60) : "",
+          })
+        );
       }
 
       default:

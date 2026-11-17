@@ -126,7 +126,10 @@ export const statHasValue = (v: string) => {
   const t = (v || "").trim();
   return t !== "" && !/^0+([.,]0+)?\s*%?$/.test(t);
 };
-const dim = (ok: boolean): React.CSSProperties => (ok ? {} : { opacity: 0.45 });
+// Dimming of not-printed items lives in CSS (.not-printed), so the hover tag stays readable.
+const dim = (_ok: boolean): React.CSSProperties => ({});
+// Items with no number: edit-only, dimmed, with a "Not in PDF" tag on hover.
+const NP = "no-print not-printed";
 
 /* -------------------------------- skeletons (AI drafting) -------------------------------- */
 
@@ -315,7 +318,7 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
 
       <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
         {r.heroStats.map((s, i) => (
-          <div key={i} className={statHasValue(s.value) ? "avoid-break" : "no-print"} style={{ flex: "1 1 0", minWidth: 0, position: "relative", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.14)", borderTop: "3px solid " + C.yellow, borderRadius: 12, padding: "14px 14px 12px", ...dim(statHasValue(s.value)) }}>
+          <div key={i} className={statHasValue(s.value) ? "avoid-break" : NP} style={{ flex: "1 1 0", minWidth: 0, position: "relative", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.14)", borderTop: "3px solid " + C.yellow, borderRadius: 12, padding: "14px 14px 12px", ...dim(statHasValue(s.value)) }}>
             <div style={{ position: "absolute", top: 4, right: 4 }}><Del dark label="Remove stat" onClick={() => up((d) => { d.heroStats.splice(i, 1); })} /></div>
             <T dark value={s.value} onChange={(v) => up((d) => { d.heroStats[i].value = v; })} placeholder="0"
               style={{ ...h2(true), fontSize: 30, lineHeight: 1, color: i === 0 ? C.yellow : C.white }} />
@@ -378,7 +381,7 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
               <T value={row.name} onChange={(v) => up((d) => { d.channels.rows[i].name = v; })} placeholder="Channel" style={{ ...h2(), fontSize: 17 }} />
               <T value={row.activity} onChange={(v) => up((d) => { d.channels.rows[i].activity = v; })} placeholder="Activity line" multiline style={{ ...smallS(), fontSize: 11.5 }} />
             </div>
-            <div className={hasNum(row.appointments) ? "" : "no-print"} style={dim(hasNum(row.appointments))}>
+            <div className={hasNum(row.appointments) ? "" : NP} style={dim(hasNum(row.appointments))}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
                 <Mono style={{ fontSize: 9 }}>Appointments produced</Mono>
                 <Num value={row.appointments} onChange={(v) => up((d) => { d.channels.rows[i].appointments = v; })} style={{ ...h2(), fontSize: 18 }} />
@@ -449,7 +452,7 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
           <Mono style={{ marginBottom: 12 }}>Appointments by role{rolesTotal ? `, all ${rolesTotal.toLocaleString("en-US")}` : ""}</Mono>
           <div style={{ display: "grid", gap: 9 }}>
             {hr.roles.map((ro, i) => (
-              <div key={i} className={hasNum(ro.count) ? "" : "no-print"} style={dim(hasNum(ro.count))}>
+              <div key={i} className={hasNum(ro.count) ? "" : NP} style={dim(hasNum(ro.count))}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 4 }}>
                   <div style={{ flex: 1 }}>
                     <T value={ro.role} onChange={(v) => up((d) => { d.howItRan.roles[i].role = v; })} placeholder="Role" style={{ fontSize: 12.5, fontWeight: i === 0 ? 700 : 500, color: C.ink }} />
@@ -494,7 +497,7 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
             // Periods: a completed period always shows its number, 0 included (a real result).
             // The current, unfinished period shows "Ongoing" (with its count so far, if any).
             // Only a completed period with no number at all stays out of the PDF.
-            <div key={i} className={q.isPartial || q.count !== null ? "" : "no-print"} style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", paddingLeft: q.isPeak ? 10 : 0, borderLeft: q.isPeak ? "3px solid " + C.yellow : undefined, ...dim(q.isPartial || q.count !== null) }}>
+            <div key={i} className={q.isPartial || q.count !== null ? "" : NP} style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", paddingLeft: q.isPeak ? 10 : 0, borderLeft: q.isPeak ? "3px solid " + C.yellow : undefined, ...dim(q.isPartial || q.count !== null) }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <T value={q.label} onChange={(v) => up((d) => { d.progression.quarters[i].label = v; })} placeholder="Q1 2026"
                   style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600, color: q.isPeak ? C.ink : C.mute }} />
@@ -549,8 +552,8 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
         {fn.stages.map((st, i) => {
           const isWon = hasNum(st.value) && i === fn.stages.length - 1 && /closed\s*won/i.test(st.name);
           return (
-            <div key={i} className={hasNum(st.value) ? "avoid-break" : "no-print avoid-break"}
-              style={{ display: "flex", gap: 14, alignItems: "center", padding: "12px 18px", borderBottom: i < fn.stages.length - 1 ? "1px solid " + C.line : undefined, background: isWon ? C.dark : undefined, color: isWon ? C.white : C.ink, opacity: hasNum(st.value) ? 1 : 0.6 }}>
+            <div key={i} className={hasNum(st.value) ? "avoid-break" : NP + " avoid-break"}
+              style={{ display: "flex", gap: 14, alignItems: "center", padding: "12px 18px", borderBottom: i < fn.stages.length - 1 ? "1px solid " + C.line : undefined, background: isWon ? C.dark : undefined, color: isWon ? C.white : C.ink,  }}>
               <Mono color={isWon ? C.yellow : C.mute}>{String(i + 1).padStart(2, "0")}</Mono>
               <div style={{ flex: 1 }}>
                 <T dark={isWon} value={st.name} onChange={(v) => up((d) => { d.funnel.stages[i].name = v; })} placeholder="Stage" style={{ fontSize: 13.5, fontWeight: 700 }} />
