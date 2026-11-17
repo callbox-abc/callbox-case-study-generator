@@ -290,10 +290,26 @@ export function buildPatch(
   if (total.emailDelivered > 0) notes.push("Email appointments are not split out in CallboxOne; the email row shows no appointment count.");
 
   const peak = Math.max(0, ...perWindow.map((t, i) => (windows[i].partial ? 0 : t.sql)));
+  // Period notes are computed from the numbers, not written by the AI, so they can't misdescribe
+  // a quarter (e.g. "held steady" for a drop from 35 to 24).
+  const fullCounts = perWindow.filter((_, i) => !windows[i].partial).map((t) => t.sql);
+  const low = fullCounts.length >= 2 ? Math.min(...fullCounts) : -1;
+  const quarterNote = (i: number): string => {
+    const w = windows[i];
+    const n = perWindow[i].sql;
+    if (w.partial) return "Still running.";
+    if (i === 0) return "Launch quarter.";
+    if (peak > 0 && n === peak) return "Peak quarter.";
+    if (n === low && low < peak) return "Low point.";
+    const prev = perWindow[i - 1].sql;
+    if (n > prev) return `Up from ${windows[i - 1].label}.`;
+    if (n < prev) return `Down from ${windows[i - 1].label}.`;
+    return `Level with ${windows[i - 1].label}.`;
+  };
   const quarters = windows.map((w, i) => ({
     label: w.label,
     count: perWindow[i].sql,
-    note: "",
+    note: quarterNote(i),
     isPeak: !w.partial && peak > 0 && perWindow[i].sql === peak,
     isPartial: w.partial,
   }));
