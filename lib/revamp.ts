@@ -88,8 +88,16 @@ const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const arr = <T>(v: unknown, map: (x: any) => T, keep: (x: T) => boolean = () => true): T[] =>
   Array.isArray(v) ? v.map(map).filter(keep) : [];
+// Drafts often write items as "Title: body"; the colon belongs to the source formatting, not the title.
+const cleanTitle = (t: string) => t.replace(/[\s:;,.\-–—]+$/, "");
 const titled = (v: unknown) =>
-  arr(v, (x) => ({ title: s(x?.title), body: s(x?.body) }), (x) => Boolean(x.title || x.body));
+  arr(v, (x) => ({ title: cleanTitle(s(x?.title)), body: s(x?.body) }), (x) => Boolean(x.title || x.body));
+
+// Drop a leading section label that the source used as a heading prefix,
+// e.g. "Pre-close Progression: Following the appointment…" -> "Following the appointment…".
+const SECTION_PREFIX =
+  /^(the\s+)?(situation|challenge|where the pipeline came from|channels?|primary contact|how it ran|progression|pre-?close progression|funnel|what changed|results|where it goes next|next steps|recommendations)\s*[:\-–—]\s*/i;
+const heading = (v: unknown) => s(v).replace(SECTION_PREFIX, "");
 
 // Normalises model output into a complete, safe RevampCaseStudy (no undefined, no wrong types).
 export function normalizeRevamp(p: any): RevampCaseStudy {
@@ -106,18 +114,18 @@ export function normalizeRevamp(p: any): RevampCaseStudy {
     heroStats: arr(p.heroStats, (x) => ({ value: s(x?.value), label: s(x?.label) }), (x) => Boolean(x.value)).slice(0, 4),
     facts: arr(p.facts, (x) => ({ label: s(x?.label), value: s(x?.value) }), (x) => Boolean(x.label && x.value)).slice(0, 8),
     situation: {
-      heading: s(p.situation?.heading),
+      heading: heading(p.situation?.heading),
       body: arr(p.situation?.body, s, (x: string) => x.length > 0),
       pullStat: s(p.situation?.pullStat),
     },
     channels: {
-      heading: s(p.channels?.heading),
+      heading: heading(p.channels?.heading),
       intro: s(p.channels?.intro),
       rows: arr(p.channels?.rows, (x) => ({ name: s(x?.name), activity: s(x?.activity), appointments: n(x?.appointments) }), (x) => Boolean(x.name)),
       takeaways: titled(p.channels?.takeaways).slice(0, 2),
     },
     primaryContact: {
-      heading: s(p.primaryContact?.heading),
+      heading: heading(p.primaryContact?.heading),
       intro: s(p.primaryContact?.intro),
       eyebrow: s(p.primaryContact?.eyebrow),
       role: s(p.primaryContact?.role),
@@ -126,7 +134,7 @@ export function normalizeRevamp(p: any): RevampCaseStudy {
       partnerReasons: titled(p.primaryContact?.partnerReasons).slice(0, 3),
     },
     howItRan: {
-      heading: s(p.howItRan?.heading),
+      heading: heading(p.howItRan?.heading),
       steps: titled(p.howItRan?.steps).slice(0, 6),
       rolesHeading: s(p.howItRan?.rolesHeading),
       rolesIntro: s(p.howItRan?.rolesIntro),
@@ -134,7 +142,7 @@ export function normalizeRevamp(p: any): RevampCaseStudy {
       rolesFootnote: s(p.howItRan?.rolesFootnote),
     },
     progression: {
-      heading: s(p.progression?.heading),
+      heading: heading(p.progression?.heading),
       body: arr(p.progression?.body, s, (x: string) => x.length > 0),
       chartTitle: s(p.progression?.chartTitle),
       chartMeta: s(p.progression?.chartMeta),
@@ -146,17 +154,17 @@ export function normalizeRevamp(p: any): RevampCaseStudy {
       footnote: s(p.progression?.footnote),
     },
     funnel: {
-      heading: s(p.funnel?.heading),
+      heading: heading(p.funnel?.heading),
       intro: s(p.funnel?.intro),
       stages: arr(p.funnel?.stages, (x) => ({ name: s(x?.name), description: s(x?.description), value: n(x?.value) }), (x) => Boolean(x.name)).slice(0, 5),
     },
     whatChanged: {
-      heading: s(p.whatChanged?.heading),
+      heading: heading(p.whatChanged?.heading),
       outcomes: arr(p.whatChanged?.outcomes, s, (x: string) => x.length > 0).slice(0, 5),
       quote: { text: s(p.whatChanged?.quote?.text), name: s(p.whatChanged?.quote?.name), title: s(p.whatChanged?.quote?.title) },
     },
     whereNext: {
-      heading: s(p.whereNext?.heading),
+      heading: heading(p.whereNext?.heading),
       intro: s(p.whereNext?.intro),
       recommendations: titled(p.whereNext?.recommendations).slice(0, 3),
       footnote: s(p.whereNext?.footnote),

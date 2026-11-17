@@ -139,7 +139,6 @@ function Section({
         borderBottom: band === "paper" ? "1px solid " + C.line : undefined,
         outline: visible ? undefined : "2px dashed " + C.line,
         outlineOffset: -8,
-        opacity: visible ? 1 : 0.75,
       }}
     >
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, paddingTop: 8, borderTop: "3px solid " + C.yellow, width: "fit-content", marginBottom: 14 }}>
@@ -439,7 +438,7 @@ export default function RevampSheet({ r, up }: { r: RevampCaseStudy; up: Up }) {
         </div>
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(6, Math.max(1, pg.quarters.length))}, minmax(0, 1fr))`, gap: 14 }}>
           {pg.quarters.map((q, i) => (
-            <div key={i} style={{ paddingLeft: q.isPeak ? 10 : 0, borderLeft: q.isPeak ? "3px solid " + C.yellow : undefined }}>
+            <div key={i} style={{ display: "flex", flexDirection: "column", paddingLeft: q.isPeak ? 10 : 0, borderLeft: q.isPeak ? "3px solid " + C.yellow : undefined }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <T value={q.label} onChange={(v) => up((d) => { d.progression.quarters[i].label = v; })} placeholder="Q1 2026"
                   style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600, color: q.isPeak ? C.ink : C.mute }} />
@@ -451,9 +450,14 @@ export default function RevampSheet({ r, up }: { r: RevampCaseStudy; up: Up }) {
               </div>
               <Bar value={q.count} max={qMax} tone={q.isPeak ? "primary" : q.isPartial ? "muted" : "mid"} />
               <T value={q.note} onChange={(v) => up((d) => { d.progression.quarters[i].note = v; })} placeholder="Note" multiline style={{ ...smallS(), fontSize: 11, marginTop: 8 }} />
-              <div className="no-print" style={{ display: "flex", gap: 8, marginTop: 6, fontFamily: MONO, fontSize: 9.5, color: C.mute }}>
-                <label><input type="checkbox" checked={q.isPeak} onChange={(e) => up((d) => { d.progression.quarters[i].isPeak = e.target.checked; })} /> Peak</label>
-                <label><input type="checkbox" checked={q.isPartial} onChange={(e) => up((d) => { d.progression.quarters[i].isPartial = e.target.checked; })} /> Partial</label>
+              {/* Pinned to the bottom of every column so the toggles line up across periods. */}
+              <div className="no-print" style={{ marginTop: "auto", paddingTop: 8, display: "flex", flexDirection: "column", gap: 4, fontFamily: MONO, fontSize: 9.5, color: C.mute }}>
+                {(["isPeak", "isPartial"] as const).map((k) => (
+                  <label key={k} style={{ display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap", cursor: "pointer" }}>
+                    <input type="checkbox" style={{ margin: 0 }} checked={q[k]} onChange={(e) => up((d) => { d.progression.quarters[i][k] = e.target.checked; })} />
+                    {k === "isPeak" ? "Peak" : "Partial"}
+                  </label>
+                ))}
               </div>
             </div>
           ))}
