@@ -178,7 +178,7 @@ const tb = (x: TitledItem) => ({ title: x.title, body: x.body });
 const para = (t: string) => ({ paragraph: t });
 // ACF number fields: send null for "not logged". The ACF REST schema only accepts a number or
 // null here; an empty string fails validation with rest_invalid_param.
-const num = (v: number | null) => (v === null ? null : v);
+const num = (v: number | null) => (v === null || v === 0 ? null : v);
 
 // Converts to the ACF field names from acf-case-study-revamp.json, as WordPress REST expects.
 export function toAcfPayload(r: RevampCaseStudy) {
@@ -190,7 +190,7 @@ export function toAcfPayload(r: RevampCaseStudy) {
     headline_highlight: r.headlineHighlight,
     dek: r.dek,
     sub_dek: r.subDek,
-    hero_stats: r.heroStats,
+    hero_stats: r.heroStats.filter((x) => x.value.trim() && !/^0+([.,]0+)?\s*%?$/.test(x.value.trim())),
     facts: r.facts,
     situation: { heading: r.situation.heading, body: r.situation.body.map(para), pull_stat: r.situation.pullStat },
     channels: {
@@ -278,7 +278,7 @@ export const SECTION_ORDER: SectionId[] = [
 ];
 
 export function loggedFunnelStages(r: RevampCaseStudy) {
-  return r.funnel.stages.filter((x) => x.value !== null);
+  return r.funnel.stages.filter((x) => x.value !== null && x.value > 0);
 }
 
 export function isSectionVisible(r: RevampCaseStudy, id: SectionId): boolean {
@@ -287,7 +287,7 @@ export function isSectionVisible(r: RevampCaseStudy, id: SectionId): boolean {
     case "channels": return r.channels.rows.length > 0;
     case "primaryContact": return Boolean(r.primaryContact.role);
     case "howItRan": return r.howItRan.steps.length > 0;
-    case "progression": return r.progression.quarters.length > 0;
+    case "progression": return r.progression.quarters.some((q) => q.count !== null && q.count > 0);
     case "funnel": return loggedFunnelStages(r).length >= 3;
     case "whatChanged": return r.whatChanged.outcomes.some(Boolean);
     case "whereNext": return r.whereNext.recommendations.length > 0;
@@ -307,15 +307,16 @@ export function revampPlainText(r: RevampCaseStudy): string {
   push((r.headline || "Untitled case study").toUpperCase(), "");
   push([r.clientName, r.solutionLines, r.country].filter(Boolean).join(" · "));
   push(r.dek, r.subDek);
-  if (r.heroStats.length) push("", ...r.heroStats.map((x) => `${x.value} ${x.label}`));
+  const stats = r.heroStats.filter((x) => x.value.trim() && !/^0+([.,]0+)?\s*%?$/.test(x.value.trim()));
+  if (stats.length) push("", ...stats.map((x) => `${x.value} ${x.label}`));
   if (r.facts.length) push("", ...r.facts.map((x) => `${x.label}: ${x.value}`));
   const nums = sectionNumbers(r);
   const head = (id: SectionId, h: string) => push("", `${String(nums[id]).padStart(2, "0")} · ${SECTION_TITLES[id].toUpperCase()}`, h);
   if (nums.situation) { head("situation", r.situation.heading); push(...r.situation.body, r.situation.pullStat); }
-  if (nums.channels) { head("channels", r.channels.heading); push(r.channels.intro, ...r.channels.rows.map((x) => `${x.name}: ${x.activity} · appointments ${x.appointments ?? "n/a"}`), ...r.channels.takeaways.map((x) => `${x.title}: ${x.body}`)); }
+  if (nums.channels) { head("channels", r.channels.heading); push(r.channels.intro, ...r.channels.rows.map((x) => `${x.name}: ${x.activity}` + (x.appointments ? ` · appointments ${x.appointments}` : "")), ...r.channels.takeaways.map((x) => `${x.title}: ${x.body}`)); }
   if (nums.primaryContact) { const p = r.primaryContact; head("primaryContact", p.heading); push(p.intro, `${p.eyebrow} ${p.role}`.trim(), p.context, ...p.pressures.map((x) => `${x.title}: ${x.body}`), ...p.partnerReasons.map((x) => `${x.title}: ${x.body}`)); }
-  if (nums.howItRan) { const h = r.howItRan; head("howItRan", h.heading); push(...h.steps.map((x, i) => `${i + 1}. ${x.title}: ${x.body}`), h.rolesHeading, h.rolesIntro, ...h.roles.map((x) => `${x.role}: ${x.count ?? ""}`), h.rolesFootnote); }
-  if (nums.progression) { const g = r.progression; head("progression", g.heading); push(...g.body, ...g.quarters.map((q) => `${q.label}: ${q.count ?? ""} ${q.note}`.trim()), g.footnote); }
+  if (nums.howItRan) { const h = r.howItRan; head("howItRan", h.heading); push(...h.steps.map((x, i) => `${i + 1}. ${x.title}: ${x.body}`), h.rolesHeading, h.rolesIntro, ...h.roles.filter((x) => x.count).map((x) => `${x.role}: ${x.count}`), h.rolesFootnote); }
+  if (nums.progression) { const g = r.progression; head("progression", g.heading); push(...g.body, ...g.quarters.filter((q) => q.count).map((q) => `${q.label}: ${q.count} ${q.note}`.trim()), g.footnote); }
   if (nums.funnel) { head("funnel", r.funnel.heading); push(r.funnel.intro, ...loggedFunnelStages(r).map((x) => `${x.name}: ${x.value}`)); }
   if (nums.whatChanged) { const w = r.whatChanged; head("whatChanged", w.heading); push(...w.outcomes.map((x) => `- ${x}`)); if (w.quote.text) push(`"${w.quote.text}" ${[w.quote.name, w.quote.title].filter(Boolean).join(", ")}`); }
   if (nums.whereNext) { const n = r.whereNext; head("whereNext", n.heading); push(n.intro, ...n.recommendations.map((x) => `${x.title}: ${x.body}`), n.footnote); }
