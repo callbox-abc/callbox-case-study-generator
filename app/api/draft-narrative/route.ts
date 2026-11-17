@@ -34,6 +34,9 @@ const SYSTEM_INSTRUCTION = [
   "- Do not repeat yourself: each number appears at most twice across the whole draft, and each section adds something the others don't. Do not start more than one sentence with \"Callbox\".",
   "- headline: result-led, at most 12 words, no client name. headlineHighlight: an exact substring of the headline (the result phrase).",
   "- dek: 1-2 sentences that add a second insight; never restate the headline.",
+  "- Prospect records on lists were worked, not engaged or reached: write \"worked 19,597 prospect records\". Only replies and appointments are people who engaged.",
+  "- Never state how many recommendations or steps there are (no \"two actions\"); just list them.",
+  "- Each headline number (the top share, the appointment total) appears in at most two places across the whole draft.",
   "- subDek: always write it. One sentence of context, not results: the period (say \"so far\" if ongoing), the market, and the scale of the program (lists and prospect records from the facts, channels worked).",
   "- Never use a share word instead of the number (\"a large majority\", \"most of the appointments\", \"the bulk of\"). Write the number: \"87 of 111 appointments (78%)\".",
   "- situation: the context before results. Who the buyers were (from the seniority mix) and what reaching them took (channels, period). No result totals here. pullStat: one sentence with the most striking comparison.",
@@ -43,7 +46,7 @@ const SYSTEM_INSTRUCTION = [
   "- progression.body: the shape over time (launch, low point, peak, partial period) using the quarter insights. Do not explain causes.",
   "- whatChanged.outcomes: 3 outcomes, each one sentence with a different number from the input.",
   "- whereNext.recommendations: 2-3 Callbox recommendations that follow from the data (title + 1-2 sentences), e.g. logging unlogged funnel stages or tracking appointments for untracked channels.",
-  "- quarterNotes: one short note per quarter that describes its position (launch quarter, low point, peak, held up, still running). Do not restate the count; it is already shown.",
+  "- quarterNotes: one short note per quarter that describes its position (launch quarter, low point, peak, up or down from the previous quarter, still running) and must match the numbers. Do not restate the count; it is already shown.",
   "",
   "Return ONLY valid JSON matching the shape. Use empty strings or empty arrays for anything you cannot ground in the input.",
 ].join("\n");

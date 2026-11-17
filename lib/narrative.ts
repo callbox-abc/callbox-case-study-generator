@@ -89,7 +89,16 @@ function insights(r: RevampCaseStudy) {
 
   const set = r.funnel.stages[0]?.value ?? null;
   const held = r.funnel.stages[1]?.value ?? null;
-  if (set && held) out.firstMeetingsHeld = { held, of: set, pct: Math.round((held / set) * 1000) / 10 };
+  if (set && held) {
+    out.firstMeetingsHeld = {
+      held,
+      of: set,
+      pct: Math.round((held / set) * 1000) / 10,
+      // Pre-computed so a recommendation like "59 of 111 have no confirmed first meeting" passes
+      // the number guard (it only accepts numbers present in the data).
+      appointmentsWithoutConfirmedMeeting: Math.max(0, set - held),
+    };
+  }
   const unlogged = r.funnel.stages.filter((x) => x.value === null).map((x) => x.name);
   if (unlogged.length) out.funnelStagesNotLogged = unlogged;
   return out;
@@ -125,13 +134,49 @@ const norm = (t: string) => t.replace(/,/g, "").replace(/%$/, "");
 // base: numbers that appear in the data, plus small counts.
 // pct: percentages computed from two key numbers (only valid with "%" or "percent").
 // ratio: "x times" ratios computed from two key numbers (only valid with "times", "x" or "-fold").
-export type Allowed = { base: Set<string>; pct: Set<string>; ratio: Set<string> };
+// basePct: percentages that appear in the data as percentages ("18.4%" in an activity line, or an
+// insight field named *Pct). A plain data number is NOT a valid percentage: 40 appointments must
+// not let "40%" through.
+// pct and ratio map a derived value to the number pairs it can come from. A derived value is only
+// accepted when both of its numbers appear in the same sentence ("87 of 111 ... 78%"): with ~30
+// data numbers, the set of all possible ratios covers almost every whole number otherwise.
+export type Allowed = {
+  base: Set<string>;
+  basePct: Set<string>;
+  baseRatio: Set<string>;
+  pct: Map<string, [number, number][]>;
+  ratio: Map<string, [number, number][]>;
+};
+
+// Insight fields named *Pct / *Times are percentages / ratios the data already provides.
+function collectFields(o: unknown, suffix: RegExp, out: Set<string>) {
+  if (!o || typeof o !== "object") return;
+  for (const [k, v] of Object.entries(o as Record<string, unknown>)) {
+    if (suffix.test(k) && typeof v === "number") out.add(norm(String(v)));
+    else if (typeof v === "object") collectFields(v, suffix, out);
+  }
+}
 
 export function allowedNumbers(r: RevampCaseStudy): Allowed {
   const base = new Set<string>();
-  const pct = new Set<string>();
-  const ratio = new Set<string>();
-  for (const m of JSON.stringify(narrativeInput(r)).match(NUM) || []) base.add(norm(m));
+  const basePct = new Set<string>();
+  const baseRatio = new Set<string>();
+  const pct = new Map<string, [number, number][]>();
+  const ratio = new Map<string, [number, number][]>();
+  const put = (m: Map<string, [number, number][]>, k: number, a: number, b: number) => {
+    const key = String(k);
+    const list = m.get(key) ?? [];
+    list.push([a, b]);
+    m.set(key, list);
+  };
+  const input = narrativeInput(r);
+  const json = JSON.stringify(input);
+  for (const m of json.match(NUM) || []) {
+    if (m.endsWith("%")) basePct.add(norm(m));
+    else base.add(norm(m));
+  }
+  collectFields(input, /pct$/i, basePct);
+  collectFields(input, /times$/i, baseRatio);
   for (let i = 0; i <= 24; i++) base.add(String(i));
 
   const key: number[] = [];
@@ -149,29 +194,38 @@ export function allowedNumbers(r: RevampCaseStudy): Allowed {
     for (const b of key) {
       if (b > 0 && a <= b) {
         const p = (a / b) * 100;
-        pct.add(String(Math.round(p)));
-        pct.add(String(Math.round(p * 10) / 10));
+        put(pct, Math.round(p), a, b);
+        put(pct, Math.round(p * 10) / 10, a, b);
       }
       if (b > 0 && a > b) {
         const q = a / b;
-        ratio.add(String(Math.round(q * 10) / 10));
-        ratio.add(String(Math.round(q)));
+        put(ratio, Math.round(q * 10) / 10, a, b);
+        put(ratio, Math.round(q), a, b);
       }
     }
-  return { base, pct, ratio };
+  return { base, basePct, baseRatio, pct, ratio };
 }
 
 // The data has no money figures, so any monetary claim is unsupported by definition.
 const MONEY = /[$€£¥]|\b(usd|eur|revenue|roi|million|billion|worth|deal value|pipeline value|arr|mrr)\b/i;
 
+// A case study reports what happened; forecasts are claims the data can't back.
+const FORECAST = /\b(projected|projection|projections|projecting|projects\s+[\d,.]*\d|forecast\w*|predict\w*|expect(s|ed)? to|will (increase|grow|double|triple|deliver|generate|produce|reach|add|boost)|on track to|on pace to)\b/i;
+
+// True when one of the value's source pairs has both numbers written in the sentence.
+function pairInSentence(pairs: [number, number][] | undefined, sentence: string): boolean {
+  if (!pairs) return false;
+  const nums = new Set((sentence.match(NUM) || []).map(norm));
+  return pairs.some(([a, b]) => nums.has(String(a)) && nums.has(String(b)));
+}
+
 function numberOk(sentence: string, m: RegExpMatchArray, A: Allowed): boolean {
   const tok = m[0];
   const v = norm(tok);
   const after = sentence.slice((m.index ?? 0) + tok.length, (m.index ?? 0) + tok.length + 12).toLowerCase();
-  if (tok.endsWith("%") || /^\s*percent/.test(after)) return A.base.has(v) || A.pct.has(v);
-  if (A.base.has(v)) return true;
-  if (/^\s*(x\b|times\b|-?fold\b)/.test(after)) return A.ratio.has(v);
-  return false;
+  if (tok.endsWith("%") || /^\s*percent/.test(after)) return A.basePct.has(v) || pairInSentence(A.pct.get(v), sentence);
+  if (/^\s*(x\b|times\b|-?fold\b)/.test(after)) return A.baseRatio.has(v) || pairInSentence(A.ratio.get(v), sentence);
+  return A.base.has(v);
 }
 
 const stripDashes = (t: string) => t.replace(/\s*—\s*/g, ", ").replace(/\s+-\s+/g, ", ");
@@ -183,7 +237,7 @@ export function guardText(text: string, A: Allowed, dropped: { n: number }): str
   // Split only at sentence ends (punctuation followed by whitespace), so decimals like 2.5 stay whole.
   const sentences = clean.split(/(?<=[.!?])\s+/);
   const kept = sentences.filter((s) => {
-    const ok = !MONEY.test(s) && [...s.matchAll(NUM)].every((m) => numberOk(s, m, A));
+    const ok = !MONEY.test(s) && !FORECAST.test(s) && [...s.matchAll(NUM)].every((m) => numberOk(s, m, A));
     if (!ok) dropped.n += 1;
     return ok;
   });
@@ -198,6 +252,12 @@ const VAGUE_CLAIM = /\b(high[- ]quality|top[- ]tier|best[- ]in[- ]class|world[- 
 // Filler words removed or swapped for plain ones.
 export function plainWords(t: string): string {
   return t
+    // Records on a list were worked, not people engaged or reached.
+    .replace(/\b(engag|reach|contact)(ed|ing|es|e)?(\s+)([\d,]+\s+(?:prospect\s+)?records)\b/gi, (_m, verb: string, end: string | undefined, sp: string, rest: string) => {
+      const e = (end || "").toLowerCase();
+      const w = e === "ing" ? "working" : e === "es" ? "works" : e === "ed" ? "worked" : "work";
+      return (verb[0] === verb[0].toUpperCase() ? w[0].toUpperCase() + w.slice(1) : w) + sp + rest;
+    })
     .replace(/\s*\b(successfully|effectively|seamlessly)\b/gi, "")
     .replace(/\s+([,.;:!?])/g, "$1")
     .replace(/\butiliz(e|es|ed|ing)\b/gi, (_m, e: string) => ({ e: "use", es: "uses", ed: "used", ing: "using" } as Record<string, string>)[e.toLowerCase()])
@@ -240,6 +300,22 @@ export function sentenceCase(t: string, keep: Set<string>): string {
         .join("-")
     )
     .join(" ");
+}
+
+// "Callbox recommends two actions" must match the number of items actually kept.
+const COUNT_WORDS = ["zero", "one", "two", "three", "four", "five", "six"];
+export function matchItemCount(text: string, n: number): string {
+  if (!text || n < 1 || n > 6) return text;
+  return text.replace(
+    /\b(one|two|three|four|five|six|\d)(\s+)(key\s+|clear\s+|main\s+)?(actions?|recommendations?|steps?|moves?|priorities|priority|changes?)\b/gi,
+    (_m, _num: string, sp: string, adj: string | undefined, noun: string) => {
+      const base = noun.toLowerCase().replace(/ies$/, "y").replace(/s$/, "");
+      const plural = n === 1 ? base : base === "priority" ? "priorities" : base + "s";
+      const word = /^\d$/.test(_num) ? String(n) : COUNT_WORDS[n];
+      const cased = _num[0] === _num[0].toUpperCase() && !/^\d$/.test(_num) ? word[0].toUpperCase() + word.slice(1) : word;
+      return `${cased}${sp}${adj ?? ""}${plural}`;
+    }
+  );
 }
 
 /* ---------------------------------- merge ---------------------------------- */
@@ -338,6 +414,9 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
   set("Where next heading", next.whereNext.heading, gh(N.heading), (v) => (next.whereNext.heading = v));
   set("Where next intro", next.whereNext.intro, g(N.intro), (v) => (next.whereNext.intro = v));
   set("Recommendations", next.whereNext.recommendations, gt(N.recommendations).slice(0, 3), (v) => (next.whereNext.recommendations = v));
+  // If the guard dropped an item, an intro like "two actions" no longer matches: fix the count.
+  next.whereNext.intro = matchItemCount(next.whereNext.intro, next.whereNext.recommendations.length);
+  next.howItRan.heading = matchItemCount(next.howItRan.heading, next.howItRan.steps.length);
   if (next.whereNext.recommendations.length && empty(next.whereNext.footnote)) {
     next.whereNext.footnote = "This section is a Callbox recommendation, not a result the client has reported.";
   }
