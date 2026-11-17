@@ -4,6 +4,7 @@
 export type TitledItem = { title: string; body: string };
 
 export type RevampCaseStudy = {
+  pdfTitle: string; // browser/print document title only; not stored in ACF
   clientName: string;
   solutionLines: string;
   country: string;
@@ -62,6 +63,7 @@ export type RevampCaseStudy = {
 
 // The JSON shape Gemini is asked to fill. Kept next to the type so they change together.
 export const REVAMP_RESPONSE_SHAPE = `{
+  "pdfTitle": string,
   "clientName": string, "solutionLines": string, "country": string,
   "headline": string, "headlineHighlight": string, "dek": string, "subDek": string,
   "heroStats": [{"value": string, "label": string}],
@@ -93,6 +95,7 @@ const titled = (v: unknown) =>
 export function normalizeRevamp(p: any): RevampCaseStudy {
   p = p && typeof p === "object" ? p : {};
   return {
+    pdfTitle: s(p.pdfTitle),
     clientName: s(p.clientName),
     solutionLines: s(p.solutionLines),
     country: s(p.country),
@@ -242,4 +245,72 @@ export function toAcfPayload(r: RevampCaseStudy) {
       form_industry_label: r.gate.formIndustryLabel,
     },
   };
+}
+
+export const EMPTY_REVAMP: RevampCaseStudy = normalizeRevamp({});
+
+// Sections that render in the PDF/page, in order. Empty optional sections are hidden and the
+// remaining ones are renumbered, matching the WordPress template and the Next.js page.
+export type SectionId =
+  | "situation" | "channels" | "primaryContact" | "howItRan" | "progression" | "funnel" | "whatChanged" | "whereNext";
+
+export const SECTION_TITLES: Record<SectionId, string> = {
+  situation: "The situation",
+  channels: "Where the pipeline came from",
+  primaryContact: "The primary contact",
+  howItRan: "How it ran",
+  progression: "The progression",
+  funnel: "Pre-close progression",
+  whatChanged: "What changed",
+  whereNext: "Where it goes next",
+};
+
+export const SECTION_ORDER: SectionId[] = [
+  "situation", "channels", "primaryContact", "howItRan", "progression", "funnel", "whatChanged", "whereNext",
+];
+
+export function loggedFunnelStages(r: RevampCaseStudy) {
+  return r.funnel.stages.filter((x) => x.value !== null);
+}
+
+export function isSectionVisible(r: RevampCaseStudy, id: SectionId): boolean {
+  switch (id) {
+    case "situation": return Boolean(r.situation.heading || r.situation.body.some(Boolean));
+    case "channels": return r.channels.rows.length > 0;
+    case "primaryContact": return Boolean(r.primaryContact.role);
+    case "howItRan": return r.howItRan.steps.length > 0;
+    case "progression": return r.progression.quarters.length > 0;
+    case "funnel": return loggedFunnelStages(r).length >= 3;
+    case "whatChanged": return r.whatChanged.outcomes.some(Boolean);
+    case "whereNext": return r.whereNext.recommendations.length > 0;
+  }
+}
+
+export function sectionNumbers(r: RevampCaseStudy): Partial<Record<SectionId, number>> {
+  const out: Partial<Record<SectionId, number>> = {};
+  let i = 0;
+  for (const id of SECTION_ORDER) if (isSectionVisible(r, id)) out[id] = ++i;
+  return out;
+}
+
+export function revampPlainText(r: RevampCaseStudy): string {
+  const L: string[] = [];
+  const push = (...x: string[]) => x.filter(Boolean).forEach((v) => L.push(v));
+  push((r.headline || "Untitled case study").toUpperCase(), "");
+  push([r.clientName, r.solutionLines, r.country].filter(Boolean).join(" · "));
+  push(r.dek, r.subDek);
+  if (r.heroStats.length) push("", ...r.heroStats.map((x) => `${x.value} ${x.label}`));
+  if (r.facts.length) push("", ...r.facts.map((x) => `${x.label}: ${x.value}`));
+  const nums = sectionNumbers(r);
+  const head = (id: SectionId, h: string) => push("", `${String(nums[id]).padStart(2, "0")} · ${SECTION_TITLES[id].toUpperCase()}`, h);
+  if (nums.situation) { head("situation", r.situation.heading); push(...r.situation.body, r.situation.pullStat); }
+  if (nums.channels) { head("channels", r.channels.heading); push(r.channels.intro, ...r.channels.rows.map((x) => `${x.name}: ${x.activity} · appointments ${x.appointments ?? "n/a"}`), ...r.channels.takeaways.map((x) => `${x.title}: ${x.body}`)); }
+  if (nums.primaryContact) { const p = r.primaryContact; head("primaryContact", p.heading); push(p.intro, `${p.eyebrow} ${p.role}`.trim(), p.context, ...p.pressures.map((x) => `${x.title}: ${x.body}`), ...p.partnerReasons.map((x) => `${x.title}: ${x.body}`)); }
+  if (nums.howItRan) { const h = r.howItRan; head("howItRan", h.heading); push(...h.steps.map((x, i) => `${i + 1}. ${x.title}: ${x.body}`), h.rolesHeading, h.rolesIntro, ...h.roles.map((x) => `${x.role}: ${x.count ?? ""}`), h.rolesFootnote); }
+  if (nums.progression) { const g = r.progression; head("progression", g.heading); push(...g.body, ...g.quarters.map((q) => `${q.label}: ${q.count ?? ""} ${q.note}`.trim()), g.footnote); }
+  if (nums.funnel) { head("funnel", r.funnel.heading); push(r.funnel.intro, ...loggedFunnelStages(r).map((x) => `${x.name}: ${x.value}`)); }
+  if (nums.whatChanged) { const w = r.whatChanged; head("whatChanged", w.heading); push(...w.outcomes.map((x) => `- ${x}`)); if (w.quote.text) push(`"${w.quote.text}" ${[w.quote.name, w.quote.title].filter(Boolean).join(", ")}`); }
+  if (nums.whereNext) { const n = r.whereNext; head("whereNext", n.heading); push(n.intro, ...n.recommendations.map((x) => `${x.title}: ${x.body}`), n.footnote); }
+  push("", r.methodologyNote, "", "Callbox Inc.");
+  return L.join("\n");
 }
