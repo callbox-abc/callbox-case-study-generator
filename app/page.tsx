@@ -1,28 +1,18 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Headset, TrendingUp, Building2, Settings, Megaphone, Target, Upload, FileText, X } from "lucide-react";
+import { Upload, FileText } from "lucide-react";
 import { extractFromFile } from "@/lib/extract";
-import {
-  CaseStudy,
-  EMPTY_CASE,
-  FIELD_LABELS,
-  HERO_ROW_1,
-  HERO_ROW_2,
-  mergeMapped,
-  buildPlainText,
-  copyText,
-} from "@/lib/types";
-import EditableField from "@/components/EditableField";
+import { copyText } from "@/lib/types";
+import { RevampCaseStudy, EMPTY_REVAMP, normalizeRevamp, revampPlainText } from "@/lib/revamp";
+import RevampSheet, { C as SHEET } from "@/components/revamp/RevampSheet";
 
 // Palette lifted directly from Callbox's corporate case study PDF template.
 const BG = "#101114";
-const HERO_GRAD = "linear-gradient(120deg, #0a0b0d 0%, #0d1526 55%, #182c4d 100%)";
 const SHEET_BG = "#1b1c21";
 const CARD_BG = "#232429";
 const YELLOW = "#f5b914";
 const YELLOW_INK = "#17181c";
-const TEAL = "#34d399";
 const TEXT = "#f5f5f7";
 const MUTED = "#a4a4ae";
 const MUTED_LIGHT = "#c7c8d3";
@@ -33,17 +23,20 @@ const BORDER_STRONG = "rgba(255,255,255,0.14)";
 // sheet renders at this fixed width both on screen and when printed, flowing
 // continuously as one long page instead of being split into fixed-height pages.
 const A4_W = 794;
-const PAGE_PAD_X = 48;
-const PAGE_PAD_Y = 40;
-const BLOCK_GAP = 20;
 
 type Stage = "upload" | "mapping" | "edit";
 
-const SOLUTION_ICONS = [Headset, TrendingUp, Building2, Settings, Megaphone, Target];
 
 export default function Page() {
   const [stage, setStage] = useState<Stage>("upload");
-  const [cs, setCs] = useState<CaseStudy>(EMPTY_CASE);
+  const [cs, setCs] = useState<RevampCaseStudy>(EMPTY_REVAMP);
+  // Immutable update helper for the sheet: clone, mutate the clone, commit.
+  const up = (fn: (d: RevampCaseStudy) => void) =>
+    setCs((prev) => {
+      const next = structuredClone(prev);
+      fn(next);
+      return next;
+    });
   const [mapError, setMapError] = useState("");
   const [pastedText, setPastedText] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
@@ -57,7 +50,7 @@ export default function Page() {
   // real corrected examples included as in-context examples on later requests — never model
   // fine-tuning or retraining; Gemini's weights are never touched.
   const [sourceText, setSourceText] = useState("");
-  const [originalMapped, setOriginalMapped] = useState<CaseStudy | null>(null);
+  const [originalMapped, setOriginalMapped] = useState<RevampCaseStudy | null>(null);
   const savedExampleRef = useRef(false);
 
   // "Send to CMS as draft": maps the current case study into the revamp layout and creates
@@ -71,47 +64,8 @@ export default function Page() {
   // (a distinct metadata field in the source, separate from the on-page case study headline
   // shown in the hero). Fall back to the on-page title, then the app name, if it's empty.
   useEffect(() => {
-    document.title = cs.pdfTitle || cs.title || "Callbox Case Study Generator";
-  }, [cs.pdfTitle, cs.title]);
-
-  const setField = (k: keyof CaseStudy, v: any) => setCs((p) => ({ ...p, [k]: v }));
-  const setArrField = (k: "keyHighlights" | "programGoals", i: number, v: string) =>
-    setCs((p) => ({ ...p, [k]: p[k].map((x, idx) => (idx === i ? v : x)) }));
-  const setSolutionField = (i: number, k: "title" | "desc", v: string) =>
-    setCs((p) => ({
-      ...p,
-      solutionServices: p.solutionServices.map((s, idx) => (idx === i ? { ...s, [k]: v } : s)),
-    }));
-  const setPhaseField = (i: number, v: string) =>
-    setCs((p) => ({ ...p, howItRan: p.howItRan.map((ph, idx) => (idx === i ? { ...ph, phase: v } : ph)) }));
-  const setPhaseStep = (pi: number, si: number, v: string) =>
-    setCs((p) => ({
-      ...p,
-      howItRan: p.howItRan.map((ph, idx) =>
-        idx === pi ? { ...ph, steps: ph.steps.map((s, sidx) => (sidx === si ? v : s)) } : ph
-      ),
-    }));
-  const addPhaseStep = (pi: number) =>
-    setCs((p) => ({
-      ...p,
-      howItRan: p.howItRan.map((ph, idx) => (idx === pi ? { ...ph, steps: [...ph.steps, ""] } : ph)),
-    }));
-  const setMetricField = (i: number, k: "value" | "label", v: string) =>
-    setCs((p) => ({ ...p, metrics: p.metrics.map((m, idx) => (idx === i ? { ...m, [k]: v } : m)) }));
-  const addMetric = () => setCs((p) => ({ ...p, metrics: [...p.metrics, { value: "", label: "" }] }));
-  const removeMetric = (i: number) => setCs((p) => ({ ...p, metrics: p.metrics.filter((_, idx) => idx !== i) }));
-  const addPhase = () => setCs((p) => ({ ...p, howItRan: [...p.howItRan, { phase: "", steps: [""] }] }));
-  const addGoal = () => setCs((p) => ({ ...p, programGoals: [...p.programGoals, ""] }));
-  const addHighlight = () => setCs((p) => ({ ...p, keyHighlights: [...p.keyHighlights, ""] }));
-  const removeGoal = (i: number) => setCs((p) => ({ ...p, programGoals: p.programGoals.filter((_, idx) => idx !== i) }));
-  const removeHighlight = (i: number) =>
-    setCs((p) => ({ ...p, keyHighlights: p.keyHighlights.filter((_, idx) => idx !== i) }));
-  const removePhase = (pi: number) => setCs((p) => ({ ...p, howItRan: p.howItRan.filter((_, idx) => idx !== pi) }));
-  const removePhaseStep = (pi: number, si: number) =>
-    setCs((p) => ({
-      ...p,
-      howItRan: p.howItRan.map((ph, idx) => (idx === pi ? { ...ph, steps: ph.steps.filter((_, sidx) => sidx !== si) } : ph)),
-    }));
+    document.title = cs.pdfTitle || cs.headline || "Callbox Case Study Generator";
+  }, [cs.pdfTitle, cs.headline]);
 
   const runMapping = async (text: string) => {
     setStage("mapping");
@@ -120,10 +74,10 @@ export default function Page() {
     setOriginalMapped(null);
     savedExampleRef.current = false;
     try {
-      const res = await fetch("/api/map", {
+      const res = await fetch("/api/map-revamp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ sourceText: text }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -131,7 +85,7 @@ export default function Page() {
         setStage("edit");
         return;
       }
-      const merged = mergeMapped(json.data);
+      const merged = normalizeRevamp(json.data);
       setCs(merged);
       setOriginalMapped(merged);
       setStage("edit");
@@ -173,7 +127,7 @@ export default function Page() {
   };
 
   const startBlank = () => {
-    setCs(EMPTY_CASE);
+    setCs(EMPTY_REVAMP);
     setSourceText("");
     setOriginalMapped(null);
     savedExampleRef.current = false;
@@ -242,21 +196,12 @@ export default function Page() {
 
   const sendToCms = async () => {
     setCmsState("sending");
-    setCmsMsg("Mapping to the revamp layout…");
     try {
-      const mapRes = await fetch("/api/map-revamp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceText, edited: cs }),
-      });
-      const mapJson = await mapRes.json();
-      if (!mapRes.ok) throw new Error(mapJson.error || "Mapping failed.");
-
       setCmsMsg("Creating the WordPress draft…");
       const draftRes = await fetch("/api/cms/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ revamp: mapJson.data, pageId: cmsPageIdRef.current }),
+        body: JSON.stringify({ revamp: cs, pageId: cmsPageIdRef.current }),
       });
       const draftJson = await draftRes.json();
       if (!draftRes.ok) throw new Error(draftJson.error || "Could not create the draft.");
@@ -315,440 +260,6 @@ export default function Page() {
     fontWeight: 500,
   };
 
-  // --- A4 pagination -------------------------------------------------
-  // Blocks are atomic units (a section header glued to its first item, or one
-  // grouped card grid) that are measured once and packed into fixed A4 pages
-  // in JS. This guarantees a section title never lands alone at the bottom of
-  // a page, card grids stay whole, and every page gets identical padding —
-  // things the browser's native print pagination could not reliably do for
-  // this dark, full-bleed layout. Hooks below must run on every render
-  // regardless of `stage`, so this lives above the early upload/mapping returns.
-  const heroNode = (
-    <div style={{ background: HERO_GRAD, color: "#fff", padding: "40px 48px 36px" }}>
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 24 }}>
-        <span
-          style={{
-            display: "inline-block",
-            background: YELLOW,
-            color: YELLOW_INK,
-            fontSize: 11,
-            fontWeight: 800,
-            letterSpacing: 1.2,
-            textTransform: "uppercase",
-            padding: "6px 14px",
-            borderRadius: 4,
-          }}
-        >
-          Case Study
-        </span>
-        <Wordmark size={20} light />
-      </div>
-
-      <div className="editable-field">
-        <EditableField
-          value={cs.title}
-          onChange={(v) => setField("title", v)}
-          placeholder="Case study title (e.g. Lead Generation for Security PaaS Firm – Denver)"
-          multiline
-          style={{ fontSize: 30, fontWeight: 800, lineHeight: 1.25, color: "#fff", maxWidth: 640 }}
-        />
-      </div>
-
-      <div style={{ height: 1, background: "rgba(255,255,255,0.14)", margin: "26px 0 22px" }} />
-
-      <HeroGrid cs={cs} keys={HERO_ROW_1} setField={setField} />
-
-      <div style={{ height: 1, background: "rgba(255,255,255,0.14)", margin: "22px 0" }} />
-
-      <HeroGrid cs={cs} keys={HERO_ROW_2} setField={setField} />
-    </div>
-  );
-
-  const statsNode = (
-    <div style={{ background: YELLOW, padding: "26px 18px 20px" }}>
-      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center" }}>
-        {cs.metrics.map((m, i) => (
-          <div
-            key={i}
-            className="metric-card"
-            style={{
-              position: "relative",
-              textAlign: "center",
-              padding: "12px 22px",
-              flex: "1 1 150px",
-              maxWidth: 220,
-            }}
-          >
-            <button
-              onClick={() => removeMetric(i)}
-              className="no-print"
-              aria-label="Remove metric"
-              style={{
-                position: "absolute",
-                top: 2,
-                right: 4,
-                border: "none",
-                background: "transparent",
-                color: "rgba(0,0,0,0.45)",
-                cursor: "pointer",
-                padding: 2,
-              }}
-            >
-              <X size={14} />
-            </button>
-            <div className="editable-field-dark">
-              <EditableField
-                value={m.value}
-                onChange={(v) => setMetricField(i, "value", v)}
-                placeholder="0"
-                style={{ fontSize: 32, fontWeight: 800, color: YELLOW_INK, textAlign: "center" }}
-              />
-            </div>
-            <div className="editable-field-dark">
-              <EditableField
-                value={m.label}
-                onChange={(v) => setMetricField(i, "label", v)}
-                placeholder="Metric label"
-                multiline
-                style={{ fontSize: 13, fontWeight: 600, color: YELLOW_INK, textAlign: "center" }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="no-print" style={{ display: "flex", justifyContent: "center", marginTop: 8 }}>
-        <button
-          onClick={addMetric}
-          style={{
-            border: "1px dashed rgba(0,0,0,0.35)",
-            background: "transparent",
-            color: YELLOW_INK,
-            borderRadius: 6,
-            padding: "6px 14px",
-            fontSize: 12,
-            fontWeight: 700,
-            cursor: "pointer",
-          }}
-        >
-          + Add metric
-        </button>
-      </div>
-    </div>
-  );
-
-  const goalRow = (g: string, i: number) => (
-    <div
-      key={i}
-      style={{
-        display: "flex",
-        gap: 14,
-        alignItems: "flex-start",
-        background: CARD_BG,
-        borderRadius: 8,
-        padding: "14px 18px",
-        marginBottom: 10,
-      }}
-    >
-      <div
-        style={{
-          width: 24,
-          height: 24,
-          borderRadius: "50%",
-          background: YELLOW,
-          color: YELLOW_INK,
-          fontSize: 12,
-          fontWeight: 800,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-          marginTop: 2,
-        }}
-      >
-        {i + 1}
-      </div>
-      <div className="editable-field" style={{ flex: 1 }}>
-        <EditableField
-          value={g}
-          onChange={(v) => setArrField("programGoals", i, v)}
-          placeholder="A program goal…"
-          multiline
-          style={{ fontSize: 14, lineHeight: 1.65, color: MUTED_LIGHT }}
-        />
-      </div>
-      <button
-        onClick={() => removeGoal(i)}
-        className="no-print"
-        aria-label="Remove goal"
-        style={{ border: "none", background: "transparent", color: MUTED, cursor: "pointer", padding: 2, flexShrink: 0, marginTop: 2 }}
-      >
-        <X size={14} />
-      </button>
-    </div>
-  );
-
-  const phaseBlock = (p: CaseStudy["howItRan"][number], pi: number, showDivider: boolean) => (
-    <div key={pi}>
-      <div style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "14px 0" }}>
-        <div
-          style={{
-            width: 22,
-            height: 22,
-            borderRadius: 5,
-            background: YELLOW,
-            color: YELLOW_INK,
-            fontSize: 12,
-            fontWeight: 800,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-            marginTop: 1,
-          }}
-        >
-          {pi + 1}
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
-            <div className="editable-field" style={{ flex: 1 }}>
-              <EditableField
-                value={p.phase}
-                onChange={(v) => setPhaseField(pi, v)}
-                placeholder="Phase name"
-                style={{ fontSize: 15, fontWeight: 700, color: TEXT, marginBottom: 8 }}
-              />
-            </div>
-            <button
-              onClick={() => removePhase(pi)}
-              className="no-print"
-              aria-label="Remove phase"
-              style={{ border: "none", background: "transparent", color: MUTED, cursor: "pointer", padding: 2, flexShrink: 0 }}
-            >
-              <X size={14} />
-            </button>
-          </div>
-          {p.steps.map((s, si) => (
-            <div key={si} style={{ display: "flex", gap: 5, marginBottom: 4, alignItems: "flex-start" }}>
-              <span style={{ color: MUTED_LIGHT, fontSize: 13.5, lineHeight: 1.6, flexShrink: 0 }}>{si + 1}.</span>
-              <div className="editable-field" style={{ flex: 1 }}>
-                <EditableField
-                  value={s}
-                  onChange={(v) => setPhaseStep(pi, si, v)}
-                  placeholder="Step detail…"
-                  multiline
-                  style={{ fontSize: 13.5, lineHeight: 1.6, color: MUTED_LIGHT }}
-                />
-              </div>
-              <button
-                onClick={() => removePhaseStep(pi, si)}
-                className="no-print"
-                aria-label="Remove step"
-                style={{ border: "none", background: "transparent", color: MUTED, cursor: "pointer", padding: 2, flexShrink: 0 }}
-              >
-                <X size={12} />
-              </button>
-            </div>
-          ))}
-          <AddLink onClick={() => addPhaseStep(pi)} label="+ Add step" small />
-        </div>
-      </div>
-      {showDivider && <div style={{ height: 1, background: BORDER, margin: "4px 0" }} />}
-    </div>
-  );
-
-  const highlightCard = (h: string, i: number) => (
-    <div
-      key={i}
-      style={{
-        background: CARD_BG,
-        borderLeft: "4px solid " + YELLOW,
-        borderRadius: "0 8px 8px 0",
-        padding: "16px 20px",
-        marginBottom: 12,
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
-        <div className="editable-field" style={{ flex: 1 }}>
-          <EditableField
-            value={h}
-            onChange={(v) => setArrField("keyHighlights", i, v)}
-            placeholder="A key result or highlight…"
-            multiline
-            style={{ fontSize: 14, lineHeight: 1.65, color: MUTED_LIGHT }}
-          />
-        </div>
-        <button
-          onClick={() => removeHighlight(i)}
-          className="no-print"
-          aria-label="Remove highlight"
-          style={{ border: "none", background: "transparent", color: MUTED, cursor: "pointer", padding: 2, flexShrink: 0 }}
-        >
-          <X size={14} />
-        </button>
-      </div>
-    </div>
-  );
-
-  type FlowBlock = { id: string; node: React.ReactNode };
-  const flowBlocks: FlowBlock[] = [];
-
-  flowBlocks.push({
-    id: "snapshot",
-    node: (
-      <div>
-        <SectionLabel title="The Client" />
-        <div className="editable-field print-flow-text">
-          <EditableField
-            value={cs.clientSnapshot}
-            onChange={(v) => setField("clientSnapshot", v)}
-            placeholder="A short paragraph introducing who the client is…"
-            multiline
-            style={{ fontSize: 14.5, lineHeight: 1.75, color: MUTED_LIGHT }}
-          />
-        </div>
-      </div>
-    ),
-  });
-
-  flowBlocks.push({
-    id: "challenge",
-    node: (
-      <div>
-        <SectionLabel title="The Challenge" />
-        <div className="editable-field print-flow-text">
-          <EditableField
-            value={cs.challenge}
-            onChange={(v) => setField("challenge", v)}
-            placeholder="Describe the client's situation and challenge before Callbox got involved…"
-            multiline
-            style={{ fontSize: 14.5, lineHeight: 1.75, color: MUTED_LIGHT }}
-          />
-        </div>
-      </div>
-    ),
-  });
-
-  flowBlocks.push({
-    id: "solution",
-    node: (
-      <div>
-        <SectionLabel title="The Callbox Solution" />
-        <div className="editable-field print-flow-text" style={{ marginBottom: 18 }}>
-          <EditableField
-            value={cs.solutionIntro}
-            onChange={(v) => setField("solutionIntro", v)}
-            placeholder="How Callbox approached the solution…"
-            multiline
-            style={{ fontSize: 14.5, lineHeight: 1.75, color: MUTED_LIGHT }}
-          />
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-          {cs.solutionServices.map((s, i) => {
-            const Icon = SOLUTION_ICONS[i % SOLUTION_ICONS.length];
-            return (
-              <div key={i} style={{ padding: "20px 20px", background: CARD_BG, borderRadius: 10, border: "1px solid " + BORDER }}>
-                <Icon size={26} style={{ color: TEAL, marginBottom: 12, display: "block" }} />
-                <div className="editable-field">
-                  <EditableField
-                    value={s.title}
-                    onChange={(v) => setSolutionField(i, "title", v)}
-                    placeholder="Service name"
-                    multiline
-                    style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.35, color: TEXT, marginBottom: 5 }}
-                  />
-                </div>
-                <div className="editable-field">
-                  <EditableField
-                    value={s.desc}
-                    onChange={(v) => setSolutionField(i, "desc", v)}
-                    placeholder="Short description…"
-                    multiline
-                    style={{ fontSize: 13, lineHeight: 1.6, color: MUTED }}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    ),
-  });
-
-  if (cs.programGoals.length === 0) {
-    flowBlocks.push({
-      id: "goals-header",
-      node: (
-        <div>
-          <SectionLabel title="Program Goals" />
-          <AddLink onClick={addGoal} label="+ Add goal" />
-        </div>
-      ),
-    });
-  } else {
-    cs.programGoals.forEach((g, i) => {
-      flowBlocks.push({
-        id: "goal-" + i,
-        node: (
-          <div>
-            {i === 0 && <SectionLabel title="Program Goals" />}
-            {goalRow(g, i)}
-            {i === cs.programGoals.length - 1 && <AddLink onClick={addGoal} label="+ Add goal" />}
-          </div>
-        ),
-      });
-    });
-  }
-
-  if (cs.howItRan.length === 0) {
-    flowBlocks.push({
-      id: "how-header",
-      node: (
-        <div>
-          <SectionLabel title="How It Ran" />
-          <AddLink onClick={addPhase} label="+ Add phase" />
-        </div>
-      ),
-    });
-  } else {
-    cs.howItRan.forEach((p, pi) => {
-      flowBlocks.push({
-        id: "how-" + pi,
-        node: (
-          <div>
-            {pi === 0 && <SectionLabel title="How It Ran" />}
-            {phaseBlock(p, pi, pi < cs.howItRan.length - 1)}
-            {pi === cs.howItRan.length - 1 && <AddLink onClick={addPhase} label="+ Add phase" />}
-          </div>
-        ),
-      });
-    });
-  }
-
-  if (cs.keyHighlights.length === 0) {
-    flowBlocks.push({
-      id: "highlights-header",
-      node: (
-        <div>
-          <SectionLabel title="Key Highlights" />
-          <AddLink onClick={addHighlight} label="+ Add highlight" />
-        </div>
-      ),
-    });
-  } else {
-    cs.keyHighlights.forEach((h, i) => {
-      flowBlocks.push({
-        id: "highlight-" + i,
-        node: (
-          <div>
-            {i === 0 && <SectionLabel title="Key Highlights" />}
-            {highlightCard(h, i)}
-            {i === cs.keyHighlights.length - 1 && <AddLink onClick={addHighlight} label="+ Add highlight" />}
-          </div>
-        ),
-      });
-    });
-  }
-
   if (stage === "upload") {
     return (
       <div style={{ minHeight: "100vh", background: BG, color: TEXT }}>
@@ -759,7 +270,7 @@ export default function Page() {
               Case Study Generator
             </h1>
             <p style={{ fontSize: 14, color: MUTED, margin: 0, lineHeight: 1.6 }}>
-              Upload a draft document and we&apos;ll map it into Callbox&apos;s corporate case study format.
+              Upload a draft document and we&apos;ll map it into the revamped Callbox case study layout.
             </p>
           </div>
 
@@ -876,9 +387,10 @@ export default function Page() {
     <div className="app-root" style={{ minHeight: "100vh", background: BG, color: TEXT }}>
       <style>{`
         @media print {
-          html, body { background: ${BG} !important; }
+          html, body { background: #FFFFFF !important; }
+          .print-only { display: block !important; }
           .app-toolbar, .edit-hint, .no-print, .page-gap { display: none !important; }
-          .app-shell { background: ${BG} !important; padding: 0 !important; }
+          .app-shell { background: #FFFFFF !important; padding: 0 !important; }
           input, textarea { border: none !important; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           /* No @page rule is declared here. The only @page rule in the app is injected into a
@@ -895,6 +407,15 @@ export default function Page() {
           .pdf-page { box-shadow: none !important; margin: 0 !important; border-radius: 0 !important; overflow: visible !important; height: auto !important; }
           .avoid-break { break-inside: avoid !important; page-break-inside: avoid !important; }
         }
+        .print-only { display: none; }
+        .ef { border-radius: 4px; transition: background 0.1s; }
+        .ef:hover { background: rgba(255,202,9,0.14); }
+        .ef:focus-within { background: rgba(255,202,9,0.22); }
+        .ef-dark:hover { background: rgba(255,255,255,0.08); }
+        .ef-dark:focus-within { background: rgba(255,255,255,0.12); }
+        .ef input::placeholder, .ef textarea::placeholder { color: rgba(107,107,107,0.75); }
+        .ef-dark input::placeholder, .ef-dark textarea::placeholder { color: rgba(217,214,207,0.5); }
+        @media print { .ef input::placeholder, .ef textarea::placeholder { color: transparent; } }
         .editable-field { transition: background 0.1s; border-radius: 4px; }
         .editable-field:hover { background: rgba(245,185,20,0.08); }
         .editable-field:focus-within { background: rgba(245,185,20,0.12); }
@@ -935,7 +456,7 @@ export default function Page() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => copyText(buildPlainText(cs), setCopied, "cpAll")} style={{ ...btnGhost, padding: "8px 16px", fontSize: 12 }}>
+          <button onClick={() => copyText(revampPlainText(cs), setCopied, "cpAll")} style={{ ...btnGhost, padding: "8px 16px", fontSize: 12 }}>
             {copied === "cpAll" ? "✓ Copied" : "Copy text"}
           </button>
           <button
@@ -1001,7 +522,7 @@ export default function Page() {
         className="edit-hint"
         style={{ maxWidth: 900, margin: "10px auto 0", padding: "0 16px", fontSize: 12, color: MUTED, textAlign: "center" }}
       >
-        Click any text below to edit it directly. Use &quot;Download PDF&quot; to save — the layout matches Callbox&apos;s corporate case study template.
+        Click any text to edit it. Dashed sections are empty and stay out of the PDF and the CMS page until filled. &quot;Download PDF&quot; prints exactly what you see, minus the edit controls.
       </div>
 
       <div className="app-shell" style={{ padding: "24px 16px 80px", display: "flex", justifyContent: "center" }}>
@@ -1012,65 +533,17 @@ export default function Page() {
             style={{
               width: A4_W,
               maxWidth: "100%",
-              background: SHEET_BG,
+              background: SHEET.white,
               boxShadow: "0 4px 40px rgba(0,0,0,0.5)",
               borderRadius: 6,
               overflow: "hidden",
             }}
           >
-            {heroNode}
-            {statsNode}
-
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                padding: `24px ${PAGE_PAD_X}px ${PAGE_PAD_Y}px`,
-                boxSizing: "border-box",
-              }}
-            >
-              {flowBlocks.map((b) => (
-                <div key={b.id} className="avoid-break" style={{ marginBottom: BLOCK_GAP }}>
-                  {b.node}
-                </div>
-              ))}
-            </div>
-
+            <RevampSheet r={cs} up={up} />
             <Footer />
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function HeroGrid({
-  cs,
-  keys,
-  setField,
-}: {
-  cs: CaseStudy;
-  keys: (keyof CaseStudy)[];
-  setField: (k: keyof CaseStudy, v: any) => void;
-}) {
-  return (
-    <div className="avoid-break" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 18 }}>
-      {keys.map((k) => (
-        <div key={k}>
-          <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.8, color: MUTED_LIGHT, textTransform: "uppercase", marginBottom: 5 }}>
-            {FIELD_LABELS[k as string]}
-          </div>
-          <div className="editable-field">
-            <EditableField
-              value={(cs as any)[k]}
-              onChange={(v) => setField(k, v)}
-              placeholder="—"
-              multiline
-              style={{ fontSize: 13.5, lineHeight: 1.5, color: "#fff" }}
-            />
-          </div>
-        </div>
-      ))}
     </div>
   );
 }
@@ -1161,44 +634,3 @@ function Footer() {
   );
 }
 
-function SectionLabel({ title }: { title: string }) {
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        fontSize: 11.5,
-        fontWeight: 800,
-        letterSpacing: 0.8,
-        color: YELLOW,
-        textTransform: "uppercase",
-        background: "#26272d",
-        padding: "6px 14px",
-        borderRadius: 4,
-        marginBottom: 14,
-      }}
-    >
-      {title}
-    </span>
-  );
-}
-
-function AddLink({ onClick, label, small }: { onClick: () => void; label: string; small?: boolean }) {
-  return (
-    <button
-      onClick={onClick}
-      className="no-print"
-      style={{
-        border: "none",
-        background: "transparent",
-        color: YELLOW,
-        fontSize: small ? 11.5 : 12.5,
-        fontWeight: 700,
-        cursor: "pointer",
-        padding: "4px 0",
-        marginTop: 2,
-      }}
-    >
-      {label}
-    </button>
-  );
-}

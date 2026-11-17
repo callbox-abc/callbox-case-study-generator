@@ -11,7 +11,8 @@ const SYSTEM_INSTRUCTION =
   "editor's corrected fields) and place its existing text into a fixed JSON template for a new page layout. " +
   "Copy wording VERBATIM from the inputs. Never paraphrase, summarize, merge, reorder, correct, or add words. " +
   "Where the editor's corrected fields and the raw source disagree, the corrected fields win. " +
-  "Field guidance: headline = the on-page case study title. headlineHighlight = an exact substring of the " +
+  "Field guidance: pdfTitle = the value of a distinct 'PDF TITLE' labeled field, else empty. " +
+  "headline = the on-page case study title. headlineHighlight = an exact substring of the " +
   "headline that carries the result, or empty. dek = the client snapshot paragraph. situation.body = the " +
   "challenge paragraph(s). howItRan.steps = the solution services and program phases as title/body pairs. " +
   "heroStats = the result metrics, at most 4. facts = every metadata label/value pair in the inputs (for example " +
