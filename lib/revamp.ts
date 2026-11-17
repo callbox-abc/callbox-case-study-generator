@@ -165,8 +165,9 @@ export function normalizeRevamp(p: any): RevampCaseStudy {
 
 const tb = (x: TitledItem) => ({ title: x.title, body: x.body });
 const para = (t: string) => ({ paragraph: t });
-// ACF number fields: send "" for "not logged" so the field is stored empty, not 0.
-const num = (v: number | null) => (v === null ? "" : v);
+// ACF number fields: send null for "not logged". The ACF REST schema only accepts a number or
+// null here; an empty string fails validation with rest_invalid_param.
+const num = (v: number | null) => (v === null ? null : v);
 
 // Converts to the ACF field names from acf-case-study-revamp.json, as WordPress REST expects.
 export function toAcfPayload(r: RevampCaseStudy) {

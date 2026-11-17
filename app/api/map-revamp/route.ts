@@ -14,8 +14,9 @@ const SYSTEM_INSTRUCTION =
   "Field guidance: headline = the on-page case study title. headlineHighlight = an exact substring of the " +
   "headline that carries the result, or empty. dek = the client snapshot paragraph. situation.body = the " +
   "challenge paragraph(s). howItRan.steps = the solution services and program phases as title/body pairs. " +
-  "heroStats = the result metrics, at most 4. facts = the metadata pairs (industry, program, duration, location, " +
-  "target industries, target location, business size, target prospects) using those labels. " +
+  "heroStats = the result metrics, at most 4. facts = every metadata label/value pair in the inputs (for example " +
+  "Program, Period measured, Market, Client HQ, Target buyers, Target industries, Channels worked, Platform), " +
+  "keeping each label exactly as written in the inputs and keeping all of them, up to 8. " +
   "whatChanged.outcomes = the key highlights. " +
   "NUMBERS: only fill a number field (appointments, count, value) when that exact number appears in the inputs " +
   "for that exact item; otherwise use null. Never estimate, total, or derive numbers. Leave channels.rows, " +
