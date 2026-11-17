@@ -373,9 +373,18 @@ export default function Page() {
             </button>
           </div>
 
-          <div style={{ textAlign: "center" }}>
+          <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
             <button style={btnGhost} onClick={startBlank}>
               Start with a blank case study
+            </button>
+            <button
+              style={{ ...btnGhost, borderColor: YELLOW, color: YELLOW }}
+              onClick={() => {
+                startBlank();
+                setShowImport(true);
+              }}
+            >
+              Start from CallboxOne data
             </button>
           </div>
         </div>
