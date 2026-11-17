@@ -94,11 +94,47 @@ export function quarterWindows(start: Date, today = new Date()): Window[] {
   return out;
 }
 
+// Appointment and registration job titles are free text (90 distinct titles on one campaign),
+// so they are grouped by seniority, which works for any industry. Only titles are read;
+// contact names, emails and phones in the same records are never used or returned.
+export const LEVELS = [
+  ["lvlCsuite", "C-suite"],
+  ["lvlVp", "VP"],
+  ["lvlDirector", "Director / Head"],
+  ["lvlManager", "Manager / Lead"],
+  ["lvlSpecialist", "Specialist / Engineer"],
+  ["lvlOther", "Other"],
+] as const;
+type LevelKey = (typeof LEVELS)[number][0];
+
+export function seniorityOf(title: string): LevelKey {
+  const x = (title || "").toLowerCase().replace(/office of the \w+/g, "");
+  if (/\bchief\b|\bc(e|f|i|t|o|m|s|is|r|d)o\b|\bciso\b|\bfounder\b|\bowner\b/.test(x) || /(?<!vice )\bpresident\b/.test(x)) return "lvlCsuite";
+  if (/\b(vice president|vp|svp|evp|avp)\b/.test(x)) return "lvlVp";
+  if (/\bdirector\b|\bhead\b/.test(x)) return "lvlDirector";
+  if (/\bmanager\b|\blead\b/.test(x)) return "lvlManager";
+  if (/architect|engineer|developer|analyst|administrator|specialist|\bsme\b|consultant/.test(x)) return "lvlSpecialist";
+  return "lvlOther";
+}
+
+const levelCounts = (records: any[], prefix: "sql_" | "er_") => {
+  const out: Record<string, number> = {};
+  for (const [k] of LEVELS) out[prefix + k] = 0;
+  for (const r of Array.isArray(records) ? records : []) {
+    const t = typeof r?.jobTitle === "string" ? r.jobTitle.trim() : "";
+    if (t) out[prefix + seniorityOf(t)] += 1;
+  }
+  return out;
+};
+
 export type Totals = {
   voiceCalls: number; emailDelivered: number; emailOpens: number; emailClicks: number;
   liMessages: number; liReplies: number; sql: number; sqlCalling: number; sqlLinkedIn: number; er: number;
+} & Record<string, number>;
+const ZERO: Totals = {
+  voiceCalls: 0, emailDelivered: 0, emailOpens: 0, emailClicks: 0, liMessages: 0, liReplies: 0, sql: 0, sqlCalling: 0, sqlLinkedIn: 0, er: 0,
+  ...Object.fromEntries(LEVELS.flatMap(([k]) => [["sql_" + k, 0], ["er_" + k, 0]])),
 };
-const ZERO: Totals = { voiceCalls: 0, emailDelivered: 0, emailOpens: 0, emailClicks: 0, liMessages: 0, liReplies: 0, sql: 0, sqlCalling: 0, sqlLinkedIn: 0, er: 0 };
 const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
 // Totals arriving from the browser (step-by-step import) are re-checked before use.
@@ -120,6 +156,8 @@ export function totalsFromReport(report: any, clientAccountId: number): Totals {
     voiceCalls: n(ch.voiceCalls), emailDelivered: n(ch.emailDelivered), emailOpens: n(ch.emailOpens), emailClicks: n(ch.emailClicks),
     liMessages: n(ch.liMessages), liReplies: n(ch.liReplies),
     sql: n(cv.sqlTotal), sqlCalling: n(cv.sqlCalling), sqlLinkedIn: n(cv.sqlLinkedIn), er: n(cv.erTotal),
+    ...levelCounts(report?.report?.sqls, "sql_"),
+    ...levelCounts(report?.report?.ers, "er_"),
   };
 }
 
@@ -135,6 +173,8 @@ export type ImportResult = {
     channels: Pick<RevampCaseStudy["channels"], "rows">;
     progression: Pick<RevampCaseStudy["progression"], "quarters" | "chartTitle" | "chartMeta">;
     funnel: Pick<RevampCaseStudy["funnel"], "stages">;
+    howItRan: Pick<RevampCaseStudy["howItRan"], "roles" | "rolesFootnote">;
+    methodologyNote: string;
   };
   notes: string[];
 };
@@ -199,7 +239,27 @@ export function buildPatch(
     ...(channelsWorked ? [{ label: "Channels worked", value: channelsWorked }] : []),
   ];
 
-  notes.push("Appointments by job title are not available from CallboxOne; the role chart stays manual.");
+  // Role chart: appointments by seniority, from the appointment records' job titles.
+  const sqlByLevel = LEVELS.map(([k, label]) => ({ key: k, label, count: total["sql_" + k] || 0 }));
+  const erByLevel = LEVELS.map(([k, label]) => ({ key: k, label, count: total["er_" + k] || 0 }));
+  const rolesTotal = sqlByLevel.reduce((t, x) => t + x.count, 0);
+  const erRolesTotal = erByLevel.reduce((t, x) => t + x.count, 0);
+  const roles = sqlByLevel
+    .filter((x) => x.count > 0)
+    .sort((a, b) => (a.key === "lvlOther" ? 1 : b.key === "lvlOther" ? -1 : b.count - a.count))
+    .map((x) => ({ role: x.label, count: x.count }));
+  let rolesFootnote = "";
+  const topSql = [...sqlByLevel].sort((a, b) => b.count - a.count)[0];
+  const topEr = [...erByLevel].sort((a, b) => b.count - a.count)[0];
+  if (erRolesTotal > 0 && topEr.count > 0) {
+    rolesFootnote =
+      topEr.key === topSql.key
+        ? `The same level leads event registrations: ${fmt(topEr.count)} of ${fmt(erRolesTotal)}, or ${pct(topEr.count, erRolesTotal)}.`
+        : `Event registrations were led by ${topEr.label}: ${fmt(topEr.count)} of ${fmt(erRolesTotal)}, or ${pct(topEr.count, erRolesTotal)}.`;
+  }
+  if (rolesTotal && rolesTotal !== total.sql) {
+    notes.push(`The role chart covers ${fmt(rolesTotal)} appointment records with a job title (CallboxOne counts ${fmt(total.sql)} appointments).`);
+  }
 
   return {
     campaign,
@@ -210,6 +270,11 @@ export function buildPatch(
       channels: { rows },
       progression: { quarters, chartTitle: "Sales-qualified appointments, by quarter", chartMeta: `${fmt(total.sql)} total · ${period.split(",")[0]}` },
       funnel: { stages },
+      howItRan: { roles, rolesFootnote },
+      methodologyNote:
+        `Figures are drawn from the CallboxOne campaign record for ${campaign.campaignName} between ${MONTHS[startD.getUTCMonth()]} ${startD.getUTCFullYear()} and ${MONTHS[endD.getUTCMonth()]} ${endD.getUTCFullYear()}. ` +
+        "Appointments are sales-qualified appointments; channel activity combines Pipeline calling with HubSpot email and LinkedIn data. " +
+        "They describe what happened in this campaign, not a forecast for another.",
     },
     notes,
   };
