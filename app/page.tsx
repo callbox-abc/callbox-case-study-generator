@@ -6,6 +6,7 @@ import { extractFromFile } from "@/lib/extract";
 import { copyText } from "@/lib/types";
 import { RevampCaseStudy, EMPTY_REVAMP, normalizeRevamp, revampPlainText } from "@/lib/revamp";
 import RevampSheet, { C as SHEET } from "@/components/revamp/RevampSheet";
+import CallboxOneImport from "@/components/revamp/CallboxOneImport";
 
 // Palette lifted directly from Callbox's corporate case study PDF template.
 const BG = "#101114";
@@ -59,6 +60,7 @@ export default function Page() {
   const [cmsMsg, setCmsMsg] = useState("");
   const [cmsLink, setCmsLink] = useState("");
   const cmsPageIdRef = useRef<number | null>(null);
+  const [showImport, setShowImport] = useState(false);
 
   // The browser/print document title must come from the document's own "PDF Title" field
   // (a distinct metadata field in the source, separate from the on-page case study headline
@@ -470,6 +472,9 @@ export default function Page() {
           <button onClick={() => copyText(revampPlainText(cs), setCopied, "cpAll")} style={{ ...btnGhost, padding: "8px 16px", fontSize: 12 }}>
             {copied === "cpAll" ? "✓ Copied" : "Copy text"}
           </button>
+          <button onClick={() => setShowImport((v) => !v)} style={{ ...btnGhost, padding: "8px 16px", fontSize: 12 }}>
+            {showImport ? "Hide CallboxOne import" : "Import from CallboxOne"}
+          </button>
           <button
             onClick={sendToCms}
             disabled={cmsState === "sending"}
@@ -482,6 +487,8 @@ export default function Page() {
           </button>
         </div>
       </div>
+
+      {showImport && <CallboxOneImport up={up} onClose={() => setShowImport(false)} />}
 
       {cmsState !== "idle" && (
         <div
