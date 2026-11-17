@@ -60,6 +60,13 @@ export default function Page() {
   const [originalMapped, setOriginalMapped] = useState<CaseStudy | null>(null);
   const savedExampleRef = useRef(false);
 
+  // "Send to CMS as draft": maps the current case study into the revamp layout and creates
+  // (or updates) one WordPress draft. The page id is kept so repeat sends update the same draft.
+  const [cmsState, setCmsState] = useState<"idle" | "sending" | "done" | "error">("idle");
+  const [cmsMsg, setCmsMsg] = useState("");
+  const [cmsLink, setCmsLink] = useState("");
+  const cmsPageIdRef = useRef<number | null>(null);
+
   // The browser/print document title must come from the document's own "PDF Title" field
   // (a distinct metadata field in the source, separate from the on-page case study headline
   // shown in the hero). Fall back to the on-page title, then the app name, if it's empty.
@@ -231,6 +238,43 @@ export default function Page() {
     const widthIn = (Math.ceil(rect.width) / PX_PER_IN).toFixed(3);
     const heightIn = (Math.ceil(rect.height) / PX_PER_IN + 0.02).toFixed(3);
     styleTag.textContent = `@media print { @page { size: ${widthIn}in ${heightIn}in; margin: 0; } }`;
+  };
+
+  const sendToCms = async () => {
+    setCmsState("sending");
+    setCmsMsg("Mapping to the revamp layout…");
+    try {
+      const mapRes = await fetch("/api/map-revamp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceText, edited: cs }),
+      });
+      const mapJson = await mapRes.json();
+      if (!mapRes.ok) throw new Error(mapJson.error || "Mapping failed.");
+
+      setCmsMsg("Creating the WordPress draft…");
+      const draftRes = await fetch("/api/cms/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revamp: mapJson.data, pageId: cmsPageIdRef.current }),
+      });
+      const draftJson = await draftRes.json();
+      if (!draftRes.ok) throw new Error(draftJson.error || "Could not create the draft.");
+
+      cmsPageIdRef.current = draftJson.id;
+      setCmsLink(draftJson.editLink);
+      const missing: string[] = draftJson.missingAcfKeys || [];
+      setCmsMsg(
+        missing.length
+          ? `Draft #${draftJson.id} saved, but these fields were not stored: ${missing.join(", ")}`
+          : `Draft #${draftJson.id} saved. Review it in WordPress before publishing.`
+      );
+      setCmsState("done");
+      saveMappingExample();
+    } catch (e: any) {
+      setCmsMsg(e?.message || "Something went wrong.");
+      setCmsState("error");
+    }
   };
 
   const printNow = () => {
@@ -894,11 +938,46 @@ export default function Page() {
           <button onClick={() => copyText(buildPlainText(cs), setCopied, "cpAll")} style={{ ...btnGhost, padding: "8px 16px", fontSize: 12 }}>
             {copied === "cpAll" ? "✓ Copied" : "Copy text"}
           </button>
+          <button
+            onClick={sendToCms}
+            disabled={cmsState === "sending"}
+            style={{ ...btnGhost, padding: "8px 16px", fontSize: 12, opacity: cmsState === "sending" ? 0.6 : 1 }}
+          >
+            {cmsState === "sending" ? "Sending…" : cmsPageIdRef.current ? "Update CMS draft" : "Send to CMS as draft"}
+          </button>
           <button onClick={printNow} style={{ ...btnPrimary, padding: "8px 20px", fontSize: 12 }}>
             Download PDF
           </button>
         </div>
       </div>
+
+      {cmsState !== "idle" && (
+        <div
+          className="app-toolbar"
+          role="status"
+          style={{
+            maxWidth: 1100,
+            margin: "10px auto 0",
+            padding: "10px 16px",
+            borderRadius: 8,
+            border: "1px solid " + (cmsState === "error" ? "#7f1d1d" : BORDER_STRONG),
+            background: CARD_BG,
+            color: cmsState === "error" ? "#fca5a5" : MUTED_LIGHT,
+            fontSize: 13,
+            display: "flex",
+            gap: 12,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <span>{cmsMsg}</span>
+          {cmsState === "done" && cmsLink && (
+            <a href={cmsLink} target="_blank" rel="noopener noreferrer" style={{ color: YELLOW, fontWeight: 600 }}>
+              Open in WordPress →
+            </a>
+          )}
+        </div>
+      )}
 
       {mapError && (
         <div
