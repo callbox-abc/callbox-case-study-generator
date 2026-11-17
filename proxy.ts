@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 // App-wide login (HTTP Basic Auth) for every page AND every /api route.
 // Credentials come from server-only env vars; they never reach the browser bundle.
-//   APP_USERNAME / APP_PASSWORD   shared login for the team (not the WordPress credentials)
+//   DRAFT_USER / DRAFT_PS   shared login for the team (not the WordPress credentials)
 // Fails closed: if either var is missing, nothing is served.
 
 function safeEqual(a: string, b: string): boolean {
@@ -16,11 +16,11 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 export function proxy(req: NextRequest) {
-  const user = process.env.APP_USERNAME;
-  const pass = process.env.APP_PASSWORD;
+  const user = process.env.DRAFT_USER;
+  const pass = process.env.DRAFT_PS;
 
   if (!user || !pass) {
-    return new NextResponse("Login is not configured. Set APP_USERNAME and APP_PASSWORD in Vercel and redeploy.", {
+    return new NextResponse("Login is not configured. Set DRAFT_USER and DRAFT_PS in Vercel and redeploy.", {
       status: 503,
     });
   }
