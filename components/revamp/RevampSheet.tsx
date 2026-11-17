@@ -491,24 +491,40 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
         </div>
         <div style={{ display: "flex", gap: 14 }}>
           {pg.quarters.map((q, i) => (
-            <div key={i} className={hasNum(q.count) ? "" : "no-print"} style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", paddingLeft: q.isPeak ? 10 : 0, borderLeft: q.isPeak ? "3px solid " + C.yellow : undefined, ...dim(hasNum(q.count)) }}>
+            // Periods: a completed period always shows its number, 0 included (a real result).
+            // The current, unfinished period shows "Ongoing" (with its count so far, if any).
+            // Only a completed period with no number at all stays out of the PDF.
+            <div key={i} className={q.isPartial || q.count !== null ? "" : "no-print"} style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", paddingLeft: q.isPeak ? 10 : 0, borderLeft: q.isPeak ? "3px solid " + C.yellow : undefined, ...dim(q.isPartial || q.count !== null) }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <T value={q.label} onChange={(v) => up((d) => { d.progression.quarters[i].label = v; })} placeholder="Q1 2026"
                   style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600, color: q.isPeak ? C.ink : C.mute }} />
                 <Del label="Remove period" onClick={() => up((d) => { d.progression.quarters.splice(i, 1); })} />
               </div>
               <div style={{ margin: "6px 0 8px" }}>
-                <Num value={q.count} onChange={(v) => up((d) => { d.progression.quarters[i].count = v; })} placeholder="0"
-                  style={{ ...h2(), fontSize: 26, textAlign: "left", color: q.isPartial ? "#A8A39A" : C.ink }} />
+                {q.isPartial && !hasNum(q.count) ? (
+                  <>
+                    <div style={{ ...h2(), fontSize: 19, lineHeight: "30px", color: "#A8A39A" }}>Ongoing</div>
+                    <div className="no-print">
+                      <Num value={q.count} onChange={(v) => up((d) => { d.progression.quarters[i].count = v; })} placeholder="count so far"
+                        style={{ fontSize: 11, textAlign: "left", color: C.mute }} />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Num value={q.count} onChange={(v) => up((d) => { d.progression.quarters[i].count = v; })} placeholder="0"
+                      style={{ ...h2(), fontSize: 26, textAlign: "left", color: q.isPartial ? "#A8A39A" : C.ink }} />
+                    {q.isPartial && <Mono style={{ fontSize: 9, marginTop: 2 }}>Ongoing</Mono>}
+                  </>
+                )}
               </div>
-              <Bar value={q.count} max={qMax} tone={q.isPeak ? "primary" : q.isPartial ? "muted" : "mid"} />
+              {!(q.isPartial && !hasNum(q.count)) && <Bar value={q.count} max={qMax} tone={q.isPeak ? "primary" : q.isPartial ? "muted" : "mid"} />}
               {pending.has("progression.quarterNotes") && !q.note ? <Skel lines={2} /> : <T value={q.note} onChange={(v) => up((d) => { d.progression.quarters[i].note = v; })} placeholder="Note" multiline style={{ ...smallS(), fontSize: 11, marginTop: 8 }} />}
               {/* Pinned to the bottom of every column so the toggles line up across periods. */}
               <div className="no-print" style={{ marginTop: "auto", paddingTop: 8, display: "flex", flexDirection: "column", gap: 4, fontFamily: MONO, fontSize: 9.5, color: C.mute }}>
                 {(["isPeak", "isPartial"] as const).map((k) => (
                   <label key={k} style={{ display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap", cursor: "pointer" }}>
                     <input type="checkbox" style={{ margin: 0 }} checked={q[k]} onChange={(e) => up((d) => { d.progression.quarters[i][k] = e.target.checked; })} />
-                    {k === "isPeak" ? "Peak" : "Partial"}
+                    {k === "isPeak" ? "Peak" : "Ongoing"}
                   </label>
                 ))}
               </div>

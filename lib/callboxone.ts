@@ -168,7 +168,7 @@ const pct = (a: number, b: number) => (b > 0 ? `${Math.round((a / b) * 1000) / 1
 
 export type ImportResult = {
   campaign: { clientId: number; clientAccountId: number; campaignName: string; clientName: string };
-  period: { from: string; to: string; months: number };
+  period: { from: string; to: string; months: number; ongoing: boolean };
   patch: Pick<RevampCaseStudy, "heroStats" | "facts"> & {
     channels: Pick<RevampCaseStudy["channels"], "rows">;
     progression: Pick<RevampCaseStudy["progression"], "quarters" | "chartTitle" | "chartMeta">;
@@ -186,6 +186,18 @@ export function buildPatch(
   perWindow: Totals[],
   progression: any,
 ): ImportResult {
+  // A trailing period with no activity at all means the campaign has stopped: drop it, so the
+  // duration ends at the last active period instead of reading as "ongoing".
+  const active = (t: Totals) => t.voiceCalls + t.liMessages + t.emailDelivered + t.sql + t.er > 0;
+  windows = [...windows];
+  perWindow = [...perWindow];
+  while (windows.length > 1 && !active(perWindow[perWindow.length - 1])) {
+    windows.pop();
+    perWindow.pop();
+  }
+  // Still running = the latest period is the current, unfinished one and it has activity.
+  const ongoing = windows[windows.length - 1]?.partial === true;
+
   const total = perWindow.reduce(add, ZERO);
   const from = windows[0]?.from ?? "";
   const to = windows[windows.length - 1]?.to ?? "";
@@ -224,7 +236,14 @@ export function buildPatch(
 
   const startD = new Date(from);
   const endD = new Date(to);
-  const period = `${MONTHS[startD.getUTCMonth()]} ${startD.getUTCFullYear()} to ${MONTHS[endD.getUTCMonth()]} ${endD.getUTCFullYear()}, ${months} months`;
+  const startLabel = `${MONTHS[startD.getUTCMonth()]} ${startD.getUTCFullYear()}`;
+  const endLabel = `${MONTHS[endD.getUTCMonth()]} ${endD.getUTCFullYear()}`;
+  const monthsLabel = `${months} month${months === 1 ? "" : "s"}`;
+  // An ongoing campaign has no real end date yet: say so instead of printing today's month.
+  const period = ongoing
+    ? `${startLabel} to present (ongoing), ${monthsLabel} so far`
+    : `${startLabel} to ${endLabel}, ${monthsLabel}`;
+  const range = ongoing ? `${startLabel} to present` : `${startLabel} to ${endLabel}`;
 
   const heroStats = [
     ...(total.sql > 0 ? [{ value: fmt(total.sql), label: "Sales-qualified appointments" }] : []),
@@ -263,16 +282,18 @@ export function buildPatch(
 
   return {
     campaign,
-    period: { from, to, months },
+    period: { from, to, months, ongoing },
     patch: {
       heroStats,
       facts,
       channels: { rows },
-      progression: { quarters, chartTitle: "Sales-qualified appointments, by quarter", chartMeta: `${fmt(total.sql)} total · ${period.split(",")[0]}` },
+      progression: { quarters, chartTitle: "Sales-qualified appointments, by quarter", chartMeta: `${fmt(total.sql)} total · ${range}` },
       funnel: { stages },
       howItRan: { roles, rolesFootnote },
       methodologyNote:
-        `Figures are drawn from the CallboxOne campaign record for ${campaign.campaignName} between ${MONTHS[startD.getUTCMonth()]} ${startD.getUTCFullYear()} and ${MONTHS[endD.getUTCMonth()]} ${endD.getUTCFullYear()}. ` +
+        (ongoing
+          ? `Figures are drawn from the CallboxOne campaign record for ${campaign.campaignName} since ${startLabel}; the campaign was still running when they were pulled. `
+          : `Figures are drawn from the CallboxOne campaign record for ${campaign.campaignName} between ${startLabel} and ${endLabel}. `) +
         "Appointments are sales-qualified appointments; channel activity combines Pipeline calling with HubSpot email and LinkedIn data. " +
         "They describe what happened in this campaign, not a forecast for another.",
     },
