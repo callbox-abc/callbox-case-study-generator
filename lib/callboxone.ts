@@ -94,12 +94,23 @@ export function quarterWindows(start: Date, today = new Date()): Window[] {
   return out;
 }
 
-type Totals = {
+export type Totals = {
   voiceCalls: number; emailDelivered: number; emailOpens: number; emailClicks: number;
   liMessages: number; liReplies: number; sql: number; sqlCalling: number; sqlLinkedIn: number; er: number;
 };
 const ZERO: Totals = { voiceCalls: 0, emailDelivered: 0, emailOpens: 0, emailClicks: 0, liMessages: 0, liReplies: 0, sql: 0, sqlCalling: 0, sqlLinkedIn: 0, er: 0 };
 const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+
+// Totals arriving from the browser (step-by-step import) are re-checked before use.
+export function sanitizeTotals(v: any): Totals {
+  return Object.fromEntries(Object.keys(ZERO).map((k) => [k, n(v?.[k])])) as Totals;
+}
+
+export function sanitizeWindow(v: any): Window | null {
+  const d = /^\d{4}-\d{2}-\d{2}$/;
+  if (!v || typeof v.label !== "string" || !d.test(v.from) || !d.test(v.to)) return null;
+  return { label: v.label.slice(0, 40), from: v.from, to: v.to, partial: Boolean(v.partial) };
+}
 
 export function totalsFromReport(report: any, clientAccountId: number): Totals {
   const c = (report?.campaigns || []).find((x: any) => Number(x?.clientAccountId) === Number(clientAccountId)) ?? report?.campaigns?.[0];

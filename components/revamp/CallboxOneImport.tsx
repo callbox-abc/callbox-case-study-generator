@@ -41,6 +41,32 @@ const btn: React.CSSProperties = {
   cursor: "pointer",
 };
 
+// Reads a response as JSON; a non-JSON body (e.g. Vercel's "An error occurred…" timeout page)
+// becomes a readable error instead of "Unexpected token".
+async function readJson(res: Response) {
+  const text = await res.text();
+  let json: any = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    const timeout = res.status === 504 || /timeout|an error occurred/i.test(text);
+    throw new Error(
+      timeout
+        ? "CallboxOne took too long to answer (server time limit). Try again in a moment."
+        : `Server error (HTTP ${res.status}): ${text.slice(0, 140)}`
+    );
+  }
+  if (!res.ok) throw new Error(json?.error || `Request failed (HTTP ${res.status}).`);
+  return json;
+}
+
+const post = (body: unknown) =>
+  fetch("/api/callboxone/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then(readJson);
+
 // "Import numbers from CallboxOne": fills the data sections (hero stats, period/channel facts,
 // channels, quarters, funnel) from the campaign record. Narrative text is never touched.
 export default function CallboxOneImport({ up, onClose }: { up: (fn: (d: RevampCaseStudy) => void) => void; onClose: () => void }) {
@@ -58,9 +84,7 @@ export default function CallboxOneImport({ up, onClose }: { up: (fn: (d: RevampC
     setMsg("");
     setErr(false);
     try {
-      const res = await fetch(`/api/callboxone/search?q=${encodeURIComponent(q.trim())}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Search failed.");
+      const json = await readJson(await fetch(`/api/callboxone/search?q=${encodeURIComponent(q.trim())}`));
       setResults(json.campaigns || []);
       setWho(json.identity || null);
       if (!json.campaigns?.length) {
@@ -80,15 +104,40 @@ export default function CallboxOneImport({ up, onClose }: { up: (fn: (d: RevampC
   const importCampaign = async (c: Campaign) => {
     setBusy("import");
     setErr(false);
-    setMsg(`Pulling ${c.campaignName} from CallboxOne (one report per quarter, this can take a minute)…`);
     try {
-      const res = await fetch("/api/callboxone/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...c, start: startOverride || undefined }),
+      setMsg(`Planning ${c.campaignName}…`);
+      const { windows } = await post({ step: "plan", campaignName: c.campaignName, start: startOverride || undefined });
+
+      // One request per quarter (each stays under the server time limit), 3 at a time, one retry each.
+      const perWindow: unknown[] = new Array(windows.length);
+      let done = 0;
+      const report = () => setMsg(`Pulling ${c.campaignName} from CallboxOne: ${done}/${windows.length} quarters…`);
+      report();
+      const fetchWindow = async (i: number) => {
+        const body = { step: "window", clientId: c.clientId, clientAccountId: c.clientAccountId, from: windows[i].from, to: windows[i].to };
+        try {
+          perWindow[i] = (await post(body)).totals;
+        } catch {
+          perWindow[i] = (await post(body)).totals;
+        }
+        done += 1;
+        report();
+      };
+      let next = 0;
+      const worker = async () => {
+        while (next < windows.length) await fetchWindow(next++);
+      };
+      const progressionP = post({
+        step: "progression",
+        clientId: c.clientId,
+        from: windows[0].from,
+        to: windows[windows.length - 1].to,
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Import failed.");
+      await Promise.all([worker(), worker(), worker()]);
+      const { progression } = await progressionP;
+
+      setMsg("Building the data sections…");
+      const json = await post({ step: "build", campaign: c, windows, perWindow, progression });
       const p = json.patch;
       up((d) => {
         d.heroStats = p.heroStats;

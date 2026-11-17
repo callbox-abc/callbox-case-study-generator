@@ -3,59 +3,87 @@ import {
   CallboxOneConfigError,
   buildPatch,
   quarterWindows,
+  sanitizeTotals,
+  sanitizeWindow,
   startFromCampaignCode,
   totalsFromReport,
   withCallboxOne,
 } from "@/lib/callboxone";
 
-// Pulls a campaign's numbers from CallboxOne and returns the data sections of the sheet
-// (hero stats, period/channel facts, channel rows, quarters, funnel). Read-only.
-// One get_report_stats call per quarter plus one progression call; each report response is
-// large (~800KB) but stays server-side and only the campaign KPIs are kept.
+// Step-by-step CallboxOne import. Each get_report_stats call takes ~15-20s and returns ~1MB,
+// so running every quarter in one request exceeded Vercel's function time limit. The browser
+// now drives the steps (plan -> one request per quarter + progression -> build), and each
+// request stays well under the limit. Read-only throughout.
+//
+//   { step: "plan", campaignName, start? }                       -> { windows }
+//   { step: "window", clientId, clientAccountId, from, to }      -> { totals }
+//   { step: "progression", clientId, from, to }                  -> { progression: { counts } }
+//   { step: "build", campaign, windows, perWindow, progression } -> ImportResult
 
 export const maxDuration = 60;
 const MAX_WINDOWS = 12; // 3 years of quarters
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+const bad = (error: string) => NextResponse.json({ error }, { status: 400 });
 
 export async function POST(req: NextRequest) {
-  let body: { clientId?: number; clientAccountId?: number; campaignName?: string; clientName?: string; start?: string };
+  let body: any;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Request body must be JSON." }, { status: 400 });
+    return bad("Request body must be JSON.");
   }
-
-  const clientId = Number(body.clientId);
-  const clientAccountId = Number(body.clientAccountId);
-  const campaignName = String(body.campaignName || "");
-  if (!clientId || !clientAccountId || !campaignName) {
-    return NextResponse.json({ error: "Pick a campaign first." }, { status: 400 });
-  }
-
-  // Start month: explicit override (YYYY-MM) or decoded from the campaign code.
-  const override = /^\d{4}-\d{2}$/.test(body.start || "") ? new Date(`${body.start}-01T00:00:00Z`) : null;
-  const start = override || startFromCampaignCode(campaignName);
-  if (!start) {
-    return NextResponse.json({ error: `Couldn't read a start month from "${campaignName}". Enter it as YYYY-MM.` }, { status: 400 });
-  }
-
-  const windows = quarterWindows(start).slice(-MAX_WINDOWS);
-  if (!windows.length) return NextResponse.json({ error: "Campaign start is in the future." }, { status: 400 });
 
   try {
-    const result = await withCallboxOne(async (call) => {
-      const perWindow = [];
-      for (const w of windows) {
-        const report = await call("get_report_stats", { clientId, clientAccountId, from: w.from, to: w.to });
-        perWindow.push(totalsFromReport(report, clientAccountId));
+    switch (body?.step) {
+      case "plan": {
+        const campaignName = String(body.campaignName || "");
+        const override = /^\d{4}-\d{2}$/.test(body.start || "") ? new Date(`${body.start}-01T00:00:00Z`) : null;
+        const start = override || startFromCampaignCode(campaignName);
+        if (!start) return bad(`Couldn't read a start month from "${campaignName}". Enter it as YYYY-MM.`);
+        const windows = quarterWindows(start).slice(-MAX_WINDOWS);
+        if (!windows.length) return bad("Campaign start is in the future.");
+        return NextResponse.json({ windows });
       }
-      const progression = await call("get_opportunity_progression", {
-        clientId,
-        from: windows[0].from,
-        to: windows[windows.length - 1].to,
-      });
-      return buildPatch({ clientId, clientAccountId, campaignName, clientName: String(body.clientName || "") }, windows, perWindow, progression);
-    });
-    return NextResponse.json(result);
+
+      case "window": {
+        const clientId = Number(body.clientId);
+        const clientAccountId = Number(body.clientAccountId);
+        if (!clientId || !clientAccountId || !DATE.test(body.from) || !DATE.test(body.to)) return bad("Invalid window request.");
+        const report = await withCallboxOne((call) =>
+          call("get_report_stats", { clientId, clientAccountId, from: body.from, to: body.to })
+        );
+        return NextResponse.json({ totals: totalsFromReport(report, clientAccountId) });
+      }
+
+      case "progression": {
+        const clientId = Number(body.clientId);
+        if (!clientId || !DATE.test(body.from) || !DATE.test(body.to)) return bad("Invalid progression request.");
+        const res = await withCallboxOne((call) =>
+          call("get_opportunity_progression", { clientId, from: body.from, to: body.to })
+        );
+        return NextResponse.json({ progression: { counts: res?.counts || {} } });
+      }
+
+      case "build": {
+        const windows = Array.isArray(body.windows) ? body.windows.map(sanitizeWindow) : [];
+        const perWindow = Array.isArray(body.perWindow) ? body.perWindow.map(sanitizeTotals) : [];
+        if (!windows.length || windows.length > MAX_WINDOWS || windows.some((w: unknown) => !w) || perWindow.length !== windows.length) {
+          return bad("Invalid build request.");
+        }
+        const c = body.campaign || {};
+        const campaign = {
+          clientId: Number(c.clientId) || 0,
+          clientAccountId: Number(c.clientAccountId) || 0,
+          campaignName: String(c.campaignName || "").slice(0, 80),
+          clientName: String(c.clientName || "").slice(0, 200),
+        };
+        return NextResponse.json(buildPatch(campaign, windows, perWindow, body.progression || {}));
+      }
+
+      default:
+        return bad("Unknown import step.");
+    }
   } catch (err: any) {
     const status = err instanceof CallboxOneConfigError ? 500 : 502;
     return NextResponse.json({ error: err?.message || "CallboxOne import failed." }, { status });
