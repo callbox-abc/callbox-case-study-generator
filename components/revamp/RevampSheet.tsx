@@ -119,12 +119,43 @@ function Bar({ value, max, tone, dark }: { value: number | null; max: number; to
 
 const maxOf = (xs: (number | null)[]) => xs.reduce<number>((m, x) => (x !== null && x > m ? x : m), 0);
 
+/* -------------------------------- skeletons (AI drafting) -------------------------------- */
+
+// Shimmer placeholder shown in a field while the AI drafts it. Screen only (never printed).
+function Skel({ lines = 1, dark, big, cols }: { lines?: number; dark?: boolean; big?: boolean; cols?: number }) {
+  const bar = (i: number, n: number) => (
+    <div
+      key={i}
+      className={dark ? "sk sk-dark" : "sk"}
+      style={{ height: big ? 26 : 11, width: n > 1 && i === n - 1 ? "60%" : "100%", borderRadius: 6 }}
+    />
+  );
+  if (cols) {
+    return (
+      <div className="no-print" aria-hidden="true" style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap: "16px 22px", marginTop: 14 }}>
+        {Array.from({ length: cols }).map((_, c) => (
+          <div key={c} style={{ display: "grid", gap: 8, paddingTop: 10 }}>
+            {[0, 1, 2].map((i) => bar(i, 3))}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div className="no-print" aria-hidden="true" style={{ display: "grid", gap: 8, padding: "6px 0", maxWidth: big ? 560 : undefined }}>
+      {Array.from({ length: lines }).map((_, i) => bar(i, lines))}
+    </div>
+  );
+}
+
+const EMPTY_SET = new Set<string>();
+
 /* ------------------------------------ section frame ------------------------------------ */
 
 function Section({
-  id, num, band, children, hiddenHint,
+  id, num, band, children, hiddenHint, drafting,
 }: {
-  id: SectionId; num?: number; band?: "paper" | "dark"; children: React.ReactNode; hiddenHint: string;
+  id: SectionId; num?: number; band?: "paper" | "dark"; children: React.ReactNode; hiddenHint: string; drafting?: boolean;
 }) {
   const visible = num !== undefined;
   const dark = band === "dark";
@@ -149,7 +180,7 @@ function Section({
       </div>
       {!visible && (
         <div className="no-print" style={{ fontFamily: MONO, fontSize: 10.5, color: C.mute, marginBottom: 12 }}>
-          Hidden in the PDF and CMS page: {hiddenHint}
+          {drafting ? "AI is drafting this section…" : <>Hidden in the PDF and CMS page: {hiddenHint}</>}
         </div>
       )}
       {children}
@@ -167,8 +198,12 @@ const cardS: React.CSSProperties = { background: C.white, border: "1px solid " +
 
 /* --------------------------------------- the sheet --------------------------------------- */
 
-export default function RevampSheet({ r, up }: { r: RevampCaseStudy; up: Up }) {
+export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampCaseStudy; up: Up; pending?: Set<string> }) {
   const nums = sectionNumbers(r);
+  // While the AI drafts, fields it is filling show a skeleton instead of the editable field.
+  const sk = (key: string, lines = 1, dark?: boolean, big?: boolean, cols?: number) =>
+    pending.has(key) ? <Skel lines={lines} dark={dark} big={big} cols={cols} /> : null;
+  const secPending = (id: string) => Array.from(pending).some((k) => k.startsWith(id + "."));
 
   const titledList = (
     path: (d: RevampCaseStudy) => { title: string; body: string }[],
@@ -248,8 +283,8 @@ export default function RevampSheet({ r, up }: { r: RevampCaseStudy; up: Up }) {
         ) : r.headline}
       </h1>
       <div className="no-print" style={{ marginBottom: 6 }}>
-        <T dark value={r.headline} onChange={(v) => up((d) => { d.headline = v; })} placeholder="Headline (H1)" multiline
-          style={{ ...h2(true), fontSize: 36, lineHeight: 1.04, maxWidth: 620 }} />
+        {sk("headline", 2, true, true) ?? <T dark value={r.headline} onChange={(v) => up((d) => { d.headline = v; })} placeholder="Headline (H1)" multiline
+          style={{ ...h2(true), fontSize: 36, lineHeight: 1.04, maxWidth: 620 }} />}
         <div style={{ display: "flex", gap: 8, alignItems: "baseline", marginTop: 6 }}>
           <Mono color={C.onDarkMute}>Highlight</Mono>
           <div style={{ flex: 1 }}>
@@ -259,10 +294,10 @@ export default function RevampSheet({ r, up }: { r: RevampCaseStudy; up: Up }) {
         </div>
       </div>
 
-      <T dark value={r.dek} onChange={(v) => up((d) => { d.dek = v; })} placeholder="Dek: who the client is and what changed" multiline
-        style={{ fontSize: 15, lineHeight: 1.55, color: "#EDEBE6", maxWidth: 620, marginTop: 10 }} />
-      <T dark value={r.subDek} onChange={(v) => up((d) => { d.subDek = v; })} placeholder="Sub-dek (optional)" multiline
-        style={{ fontSize: 13, lineHeight: 1.6, color: C.onDarkMute, maxWidth: 620, marginTop: 6 }} />
+      {sk("dek", 2, true) ?? <T dark value={r.dek} onChange={(v) => up((d) => { d.dek = v; })} placeholder="Dek: who the client is and what changed" multiline
+        style={{ fontSize: 15, lineHeight: 1.55, color: "#EDEBE6", maxWidth: 620, marginTop: 10 }} />}
+      {sk("subDek", 1, true) ?? <T dark value={r.subDek} onChange={(v) => up((d) => { d.subDek = v; })} placeholder="Sub-dek (optional)" multiline
+        style={{ fontSize: 13, lineHeight: 1.6, color: C.onDarkMute, maxWidth: 620, marginTop: 6 }} />}
 
       <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.max(1, Math.min(4, r.heroStats.length || 1))}, minmax(0, 1fr))`, gap: 12, marginTop: 24 }}>
         {r.heroStats.map((s, i) => (
@@ -304,13 +339,13 @@ export default function RevampSheet({ r, up }: { r: RevampCaseStudy; up: Up }) {
   /* ---------------- sections ---------------- */
   const S = r.situation;
   const situation = (
-    <Section id="situation" num={nums.situation} hiddenHint="add a heading or a paragraph.">
-      <T value={S.heading} onChange={(v) => up((d) => { d.situation.heading = v; })} placeholder="Section heading" multiline style={{ ...h2(), marginBottom: 12 }} />
-      {paragraphs((d) => d.situation.body)}
+    <Section id="situation" drafting={secPending("situation")} num={nums.situation} hiddenHint="add a heading or a paragraph.">
+      {sk("situation.heading", 1, false, true) ?? <T value={S.heading} onChange={(v) => up((d) => { d.situation.heading = v; })} placeholder="Section heading" multiline style={{ ...h2(), marginBottom: 12 }} />}
+      {sk("situation.body", 4) ?? paragraphs((d) => d.situation.body)}
       {(S.pullStat || true) && (
         <div style={{ marginTop: 14, paddingLeft: 16, borderLeft: "3px solid " + C.yellow }} className={S.pullStat ? "" : "no-print"}>
-          <T value={S.pullStat} onChange={(v) => up((d) => { d.situation.pullStat = v; })} placeholder="Pull stat (optional)" multiline
-            style={{ fontSize: 16, fontWeight: 600, lineHeight: 1.45, color: C.ink }} />
+          {sk("situation.pullStat", 2) ?? <T value={S.pullStat} onChange={(v) => up((d) => { d.situation.pullStat = v; })} placeholder="Pull stat (optional)" multiline
+            style={{ fontSize: 16, fontWeight: 600, lineHeight: 1.45, color: C.ink }} />}
         </div>
       )}
     </Section>
@@ -319,9 +354,9 @@ export default function RevampSheet({ r, up }: { r: RevampCaseStudy; up: Up }) {
   const ch = r.channels;
   const chMax = maxOf(ch.rows.map((x) => x.appointments));
   const channels = (
-    <Section id="channels" num={nums.channels} band="paper" hiddenHint="add at least one channel row.">
-      <T value={ch.heading} onChange={(v) => up((d) => { d.channels.heading = v; })} placeholder="Section heading" multiline style={{ ...h2(), marginBottom: 10 }} />
-      <T value={ch.intro} onChange={(v) => up((d) => { d.channels.intro = v; })} placeholder="Intro" multiline style={bodyS()} />
+    <Section id="channels" drafting={secPending("channels")} num={nums.channels} band="paper" hiddenHint="add at least one channel row.">
+      {sk("channels.heading", 1, false, true) ?? <T value={ch.heading} onChange={(v) => up((d) => { d.channels.heading = v; })} placeholder="Section heading" multiline style={{ ...h2(), marginBottom: 10 }} />}
+      {sk("channels.intro", 2) ?? <T value={ch.intro} onChange={(v) => up((d) => { d.channels.intro = v; })} placeholder="Intro" multiline style={bodyS()} />}
       <div style={{ ...cardS, marginTop: 16, padding: "4px 20px" }}>
         {ch.rows.map((row, i) => (
           <div key={i} className="avoid-break" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr) auto", gap: 16, alignItems: "center", padding: "14px 0", borderBottom: i < ch.rows.length - 1 ? "1px solid " + C.line : undefined }}>
@@ -341,13 +376,13 @@ export default function RevampSheet({ r, up }: { r: RevampCaseStudy; up: Up }) {
         ))}
       </div>
       <Add label="+ Channel" onClick={() => up((d) => { d.channels.rows.push({ name: "", activity: "", appointments: null }); })} />
-      {titledList((d) => d.channels.takeaways, 2, "+ Takeaway")}
+      {sk("channels.takeaways", 3, false, false, 2) ?? titledList((d) => d.channels.takeaways, 2, "+ Takeaway")}
     </Section>
   );
 
   const pc = r.primaryContact;
   const primary = (
-    <Section id="primaryContact" num={nums.primaryContact} hiddenHint="fill in the role.">
+    <Section id="primaryContact" drafting={secPending("primaryContact")} num={nums.primaryContact} hiddenHint="fill in the role.">
       <T value={pc.heading} onChange={(v) => up((d) => { d.primaryContact.heading = v; })} placeholder="Section heading" multiline style={{ ...h2(), marginBottom: 10 }} />
       <T value={pc.intro} onChange={(v) => up((d) => { d.primaryContact.intro = v; })} placeholder="Intro" multiline style={bodyS()} />
       <div className="avoid-break" style={{ ...cardS, borderTop: "3px solid " + C.yellow, marginTop: 16 }}>
@@ -373,8 +408,10 @@ export default function RevampSheet({ r, up }: { r: RevampCaseStudy; up: Up }) {
   const rolesMax = maxOf(hr.roles.map((x) => x.count));
   const rolesTotal = hr.roles.reduce((t, x) => t + (x.count ?? 0), 0);
   const howItRan = (
-    <Section id="howItRan" num={nums.howItRan} hiddenHint="add at least one step.">
-      <T value={hr.heading} onChange={(v) => up((d) => { d.howItRan.heading = v; })} placeholder="Section heading" multiline style={{ ...h2(), marginBottom: 6 }} />
+    <Section id="howItRan" drafting={secPending("howItRan")} num={nums.howItRan} hiddenHint="add at least one step.">
+      {sk("howItRan.heading", 1, false, true) ?? <T value={hr.heading} onChange={(v) => up((d) => { d.howItRan.heading = v; })} placeholder="Section heading" multiline style={{ ...h2(), marginBottom: 6 }} />}
+      {sk("howItRan.steps", 3, false, false, 2) ?? (
+        <>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "18px 24px", marginTop: 12 }}>
         {hr.steps.map((st, i) => (
           <div key={i} className="avoid-break">
@@ -388,10 +425,12 @@ export default function RevampSheet({ r, up }: { r: RevampCaseStudy; up: Up }) {
         ))}
       </div>
       <Add label="+ Step" onClick={() => up((d) => { d.howItRan.steps.push({ title: "", body: "" }); })} />
+        </>
+      )}
 
       <div className={hr.roles.length ? "" : "no-print"} style={{ marginTop: 24 }}>
-        <T value={hr.rolesHeading} onChange={(v) => up((d) => { d.howItRan.rolesHeading = v; })} placeholder="Roles heading (optional)" multiline style={{ ...h2(), fontSize: 19 }} />
-        <T value={hr.rolesIntro} onChange={(v) => up((d) => { d.howItRan.rolesIntro = v; })} placeholder="Roles intro" multiline style={{ ...smallS(), marginTop: 4 }} />
+        {sk("howItRan.rolesHeading", 1) ?? <T value={hr.rolesHeading} onChange={(v) => up((d) => { d.howItRan.rolesHeading = v; })} placeholder="Roles heading (optional)" multiline style={{ ...h2(), fontSize: 19 }} />}
+        {sk("howItRan.rolesIntro", 2) ?? <T value={hr.rolesIntro} onChange={(v) => up((d) => { d.howItRan.rolesIntro = v; })} placeholder="Roles intro" multiline style={{ ...smallS(), marginTop: 4 }} />}
         <div className="avoid-break" style={{ ...cardS, marginTop: 12 }}>
           <Mono style={{ marginBottom: 12 }}>Appointments by role{rolesTotal ? `, all ${rolesTotal.toLocaleString("en-US")}` : ""}</Mono>
           <div style={{ display: "grid", gap: 9 }}>
@@ -423,9 +462,9 @@ export default function RevampSheet({ r, up }: { r: RevampCaseStudy; up: Up }) {
   const pg = r.progression;
   const qMax = maxOf(pg.quarters.map((x) => x.count));
   const progression = (
-    <Section id="progression" num={nums.progression} band="paper" hiddenHint="add at least one period.">
-      <T value={pg.heading} onChange={(v) => up((d) => { d.progression.heading = v; })} placeholder="Section heading" multiline style={{ ...h2(), marginBottom: 10 }} />
-      {paragraphs((d) => d.progression.body)}
+    <Section id="progression" drafting={secPending("progression")} num={nums.progression} band="paper" hiddenHint="add at least one period.">
+      {sk("progression.heading", 1, false, true) ?? <T value={pg.heading} onChange={(v) => up((d) => { d.progression.heading = v; })} placeholder="Section heading" multiline style={{ ...h2(), marginBottom: 10 }} />}
+      {sk("progression.body", 3) ?? paragraphs((d) => d.progression.body)}
       <div className="avoid-break" style={{ ...cardS, marginTop: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline", paddingBottom: 10, marginBottom: 14, borderBottom: "1px solid " + C.line }}>
           <div style={{ flex: 1 }}>
@@ -449,7 +488,7 @@ export default function RevampSheet({ r, up }: { r: RevampCaseStudy; up: Up }) {
                   style={{ ...h2(), fontSize: 26, textAlign: "left", color: q.isPartial ? "#A8A39A" : C.ink }} />
               </div>
               <Bar value={q.count} max={qMax} tone={q.isPeak ? "primary" : q.isPartial ? "muted" : "mid"} />
-              <T value={q.note} onChange={(v) => up((d) => { d.progression.quarters[i].note = v; })} placeholder="Note" multiline style={{ ...smallS(), fontSize: 11, marginTop: 8 }} />
+              {pending.has("progression.quarterNotes") && !q.note ? <Skel lines={2} /> : <T value={q.note} onChange={(v) => up((d) => { d.progression.quarters[i].note = v; })} placeholder="Note" multiline style={{ ...smallS(), fontSize: 11, marginTop: 8 }} />}
               {/* Pinned to the bottom of every column so the toggles line up across periods. */}
               <div className="no-print" style={{ marginTop: "auto", paddingTop: 8, display: "flex", flexDirection: "column", gap: 4, fontFamily: MONO, fontSize: 9.5, color: C.mute }}>
                 {(["isPeak", "isPartial"] as const).map((k) => (
@@ -473,9 +512,9 @@ export default function RevampSheet({ r, up }: { r: RevampCaseStudy; up: Up }) {
   const fn = r.funnel;
   const logged = loggedFunnelStages(r);
   const funnel = (
-    <Section id="funnel" num={nums.funnel} hiddenHint={`shows once 3 or more stages have a value (${logged.length} logged now).`}>
-      <T value={fn.heading} onChange={(v) => up((d) => { d.funnel.heading = v; })} placeholder="Section heading" multiline style={{ ...h2(), marginBottom: 10 }} />
-      <T value={fn.intro} onChange={(v) => up((d) => { d.funnel.intro = v; })} placeholder="Intro" multiline style={bodyS()} />
+    <Section id="funnel" drafting={secPending("funnel")} num={nums.funnel} hiddenHint={`shows once 3 or more stages have a value (${logged.length} logged now).`}>
+      {sk("funnel.heading", 1, false, true) ?? <T value={fn.heading} onChange={(v) => up((d) => { d.funnel.heading = v; })} placeholder="Section heading" multiline style={{ ...h2(), marginBottom: 10 }} />}
+      {sk("funnel.intro", 2) ?? <T value={fn.intro} onChange={(v) => up((d) => { d.funnel.intro = v; })} placeholder="Intro" multiline style={bodyS()} />}
       <div style={{ ...cardS, padding: 0, marginTop: 14, overflow: "hidden" }}>
         {fn.stages.map((st, i) => {
           const isWon = st.value !== null && i === fn.stages.length - 1 && /closed\s*won/i.test(st.name);
@@ -500,8 +539,10 @@ export default function RevampSheet({ r, up }: { r: RevampCaseStudy; up: Up }) {
 
   const wc = r.whatChanged;
   const whatChanged = (
-    <Section id="whatChanged" num={nums.whatChanged} hiddenHint="add at least one outcome.">
-      <T value={wc.heading} onChange={(v) => up((d) => { d.whatChanged.heading = v; })} placeholder="Section heading" multiline style={{ ...h2(), marginBottom: 10 }} />
+    <Section id="whatChanged" drafting={secPending("whatChanged")} num={nums.whatChanged} hiddenHint="add at least one outcome.">
+      {sk("whatChanged.heading", 1, false, true) ?? <T value={wc.heading} onChange={(v) => up((d) => { d.whatChanged.heading = v; })} placeholder="Section heading" multiline style={{ ...h2(), marginBottom: 10 }} />}
+      {sk("whatChanged.outcomes", 4) ?? (
+        <>
       {wc.outcomes.map((o, i) => (
         <div key={i} className="avoid-break" style={{ display: "flex", gap: 14, padding: "12px 0", borderTop: "1px solid " + C.line }}>
           <span style={{ flex: "0 0 7px", height: 7, background: C.yellow, marginTop: 8 }} />
@@ -512,6 +553,8 @@ export default function RevampSheet({ r, up }: { r: RevampCaseStudy; up: Up }) {
         </div>
       ))}
       <Add label="+ Outcome" onClick={() => up((d) => { d.whatChanged.outcomes.push(""); })} />
+        </>
+      )}
       <figure className={wc.quote.text ? "avoid-break" : "no-print"} style={{ margin: "18px 0 0", padding: "18px 20px", background: C.paper, borderRadius: 12, borderLeft: "3px solid " + C.yellow }}>
         <T value={wc.quote.text} onChange={(v) => up((d) => { d.whatChanged.quote.text = v; })} placeholder="Client quote (optional, hidden when empty)" multiline style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.5, color: C.ink }} />
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
@@ -524,10 +567,10 @@ export default function RevampSheet({ r, up }: { r: RevampCaseStudy; up: Up }) {
 
   const wn = r.whereNext;
   const whereNext = (
-    <Section id="whereNext" num={nums.whereNext} band="dark" hiddenHint="add at least one recommendation.">
-      <T dark value={wn.heading} onChange={(v) => up((d) => { d.whereNext.heading = v; })} placeholder="Section heading" multiline style={{ ...h2(true), marginBottom: 10 }} />
-      <T dark value={wn.intro} onChange={(v) => up((d) => { d.whereNext.intro = v; })} placeholder="Intro" multiline style={bodyS(true)} />
-      {titledList((d) => d.whereNext.recommendations, 3, "+ Recommendation", true)}
+    <Section id="whereNext" drafting={secPending("whereNext")} num={nums.whereNext} band="dark" hiddenHint="add at least one recommendation.">
+      {sk("whereNext.heading", 1, true, true) ?? <T dark value={wn.heading} onChange={(v) => up((d) => { d.whereNext.heading = v; })} placeholder="Section heading" multiline style={{ ...h2(true), marginBottom: 10 }} />}
+      {sk("whereNext.intro", 2, true) ?? <T dark value={wn.intro} onChange={(v) => up((d) => { d.whereNext.intro = v; })} placeholder="Intro" multiline style={bodyS(true)} />}
+      {sk("whereNext.recommendations", 3, true, false, 3) ?? titledList((d) => d.whereNext.recommendations, 3, "+ Recommendation", true)}
       <div style={{ marginTop: 14, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.14)" }} className={wn.footnote ? "" : "no-print"}>
         <T dark value={wn.footnote} onChange={(v) => up((d) => { d.whereNext.footnote = v; })} placeholder="Footnote (optional)" multiline style={{ ...smallS(true), fontSize: 11.5, color: C.onDarkMute }} />
       </div>

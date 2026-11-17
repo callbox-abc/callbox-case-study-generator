@@ -219,3 +219,74 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
 
   return { next, drafted, droppedSentences: dropped.n };
 }
+
+/* ------------------------- pending fields (skeletons) ------------------------- */
+
+// Keys of the fields the AI will draft for this sheet: the same rules mergeNarrative applies.
+// Used to show skeletons while drafting, and to apply the result only where still empty.
+export function pendingFields(r: RevampCaseStudy): Set<string> {
+  const keys = new Set<string>();
+  const want = (key: string, v: unknown, when = true) => {
+    if (when && empty(v)) keys.add(key);
+  };
+  want("headline", r.headline);
+  want("dek", r.dek);
+  want("subDek", r.subDek);
+  want("situation.heading", r.situation.heading);
+  want("situation.body", r.situation.body);
+  want("situation.pullStat", r.situation.pullStat);
+  const ch = r.channels.rows.length > 0;
+  want("channels.heading", r.channels.heading, ch);
+  want("channels.intro", r.channels.intro, ch);
+  want("channels.takeaways", r.channels.takeaways, ch);
+  want("howItRan.heading", r.howItRan.heading);
+  want("howItRan.steps", r.howItRan.steps);
+  const ro = r.howItRan.roles.length > 0;
+  want("howItRan.rolesHeading", r.howItRan.rolesHeading, ro);
+  want("howItRan.rolesIntro", r.howItRan.rolesIntro, ro);
+  const q = r.progression.quarters.length > 0;
+  want("progression.heading", r.progression.heading, q);
+  want("progression.body", r.progression.body, q);
+  if (q && r.progression.quarters.some((x) => empty(x.note))) keys.add("progression.quarterNotes");
+  const fu = r.funnel.stages.length > 0;
+  want("funnel.heading", r.funnel.heading, fu);
+  want("funnel.intro", r.funnel.intro, fu);
+  want("whatChanged.heading", r.whatChanged.heading);
+  want("whatChanged.outcomes", r.whatChanged.outcomes);
+  want("whereNext.heading", r.whereNext.heading);
+  want("whereNext.intro", r.whereNext.intro);
+  want("whereNext.recommendations", r.whereNext.recommendations);
+  return keys;
+}
+
+const getPath = (o: any, path: string) => path.split(".").reduce((x, k) => (x == null ? x : x[k]), o);
+const setPath = (o: any, path: string, v: unknown) => {
+  const parts = path.split(".");
+  const last = parts.pop() as string;
+  const target = parts.reduce((x, k) => x[k], o);
+  target[last] = v;
+};
+
+// Applies a drafted sheet onto the CURRENT sheet, field by field, only where the current value
+// is still empty. Edits made while the AI was drafting are therefore never overwritten.
+export function applyDrafted(current: RevampCaseStudy, drafted: RevampCaseStudy, keys: Set<string>): RevampCaseStudy {
+  const next: RevampCaseStudy = structuredClone(current);
+  for (const key of keys) {
+    if (key === "progression.quarterNotes") {
+      for (const q of next.progression.quarters) {
+        const dq = drafted.progression.quarters.find((x) => x.label === q.label);
+        if (dq && empty(q.note) && !empty(dq.note)) q.note = dq.note;
+      }
+      continue;
+    }
+    const v = getPath(drafted, key);
+    if (empty(getPath(next, key)) && !empty(v)) setPath(next, key, structuredClone(v));
+  }
+  if (empty(next.headlineHighlight) && drafted.headlineHighlight && next.headline.includes(drafted.headlineHighlight)) {
+    next.headlineHighlight = drafted.headlineHighlight;
+  }
+  if (next.whereNext.recommendations.length && empty(next.whereNext.footnote) && !empty(drafted.whereNext.footnote)) {
+    next.whereNext.footnote = drafted.whereNext.footnote;
+  }
+  return next;
+}
