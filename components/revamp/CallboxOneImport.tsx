@@ -50,6 +50,7 @@ export default function CallboxOneImport({ up, onClose }: { up: (fn: (d: RevampC
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState(false);
   const [startOverride, setStartOverride] = useState("");
+  const [who, setWho] = useState<{ userName: string | null; globalClientScope: boolean } | null>(null);
 
   const search = async () => {
     if (q.trim().length < 2) return;
@@ -61,7 +62,13 @@ export default function CallboxOneImport({ up, onClose }: { up: (fn: (d: RevampC
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Search failed.");
       setResults(json.campaigns || []);
-      if (!json.campaigns?.length) setMsg("No active campaigns match that search.");
+      setWho(json.identity || null);
+      if (!json.campaigns?.length) {
+        const scope = json.identity && !json.identity.globalClientScope
+          ? ` The token belongs to ${json.identity.userName || "a user"} without global client access, so only that user's teams are searchable.`
+          : "";
+        setMsg("No active campaigns match that search." + scope);
+      }
     } catch (e: any) {
       setErr(true);
       setMsg(e?.message || "Search failed.");
@@ -159,6 +166,12 @@ export default function CallboxOneImport({ up, onClose }: { up: (fn: (d: RevampC
         </div>
       )}
 
+      {who && (
+        <div style={{ marginTop: 8, fontSize: 12, color: "#a4a4ae" }}>
+          Connected to CallboxOne as <b>{who.userName || "unknown user"}</b> ·{" "}
+          {who.globalClientScope ? "all clients" : "own teams only"}
+        </div>
+      )}
       {msg && <div style={{ marginTop: 10, color: err ? "#fca5a5" : "#c7c8d3" }}>{msg}</div>}
     </div>
   );
