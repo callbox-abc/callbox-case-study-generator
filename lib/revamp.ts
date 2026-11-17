@@ -223,7 +223,7 @@ export function toAcfPayload(r: RevampCaseStudy) {
       chart_meta: r.progression.chartMeta,
       quarters: r.progression.quarters.map((x) => ({
         label: x.label,
-        count: num(x.count),
+        count: x.count, // periods keep 0: a completed period with 0 is a real result
         note: x.note,
         is_peak: x.isPeak,
         is_partial: x.isPartial,
@@ -316,7 +316,7 @@ export function revampPlainText(r: RevampCaseStudy): string {
   if (nums.channels) { head("channels", r.channels.heading); push(r.channels.intro, ...r.channels.rows.map((x) => `${x.name}: ${x.activity}` + (x.appointments ? ` · appointments ${x.appointments}` : "")), ...r.channels.takeaways.map((x) => `${x.title}: ${x.body}`)); }
   if (nums.primaryContact) { const p = r.primaryContact; head("primaryContact", p.heading); push(p.intro, `${p.eyebrow} ${p.role}`.trim(), p.context, ...p.pressures.map((x) => `${x.title}: ${x.body}`), ...p.partnerReasons.map((x) => `${x.title}: ${x.body}`)); }
   if (nums.howItRan) { const h = r.howItRan; head("howItRan", h.heading); push(...h.steps.map((x, i) => `${i + 1}. ${x.title}: ${x.body}`), h.rolesHeading, h.rolesIntro, ...h.roles.filter((x) => x.count).map((x) => `${x.role}: ${x.count}`), h.rolesFootnote); }
-  if (nums.progression) { const g = r.progression; head("progression", g.heading); push(...g.body, ...g.quarters.filter((q) => q.count).map((q) => `${q.label}: ${q.count} ${q.note}`.trim()), g.footnote); }
+  if (nums.progression) { const g = r.progression; head("progression", g.heading); push(...g.body, ...g.quarters.filter((q) => q.isPartial || q.count !== null).map((q) => (q.isPartial && !q.count ? `${q.label}: ongoing ${q.note}` : `${q.label}: ${q.count}${q.isPartial ? " (ongoing)" : ""} ${q.note}`).trim()), g.footnote); }
   if (nums.funnel) { head("funnel", r.funnel.heading); push(r.funnel.intro, ...loggedFunnelStages(r).map((x) => `${x.name}: ${x.value}`)); }
   if (nums.whatChanged) { const w = r.whatChanged; head("whatChanged", w.heading); push(...w.outcomes.map((x) => `- ${x}`)); if (w.quote.text) push(`"${w.quote.text}" ${[w.quote.name, w.quote.title].filter(Boolean).join(", ")}`); }
   if (nums.whereNext) { const n = r.whereNext; head("whereNext", n.heading); push(n.intro, ...n.recommendations.map((x) => `${x.title}: ${x.body}`), n.footnote); }

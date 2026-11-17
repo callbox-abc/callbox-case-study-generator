@@ -21,6 +21,7 @@ const SYSTEM_INSTRUCTION = [
   "- If funnel stages after the first meeting have null values, do not claim opportunities or revenue. You may recommend logging them.",
   "- Channel rows with appointments null mean that channel's appointments are not tracked; do not say it produced zero unless the value is 0.",
   "- Partial periods (isPartial true) are still running; do not compare them as full quarters.",
+  "- If insights.campaignOngoing is true, describe the program as still running (\"so far\", \"ongoing\"). Never call the current period a drop, dip or slowdown, and never give the campaign an end date.",
   "",
   "USE THE INSIGHTS:",
   "- input.insights holds pre-computed, data-backed findings (top channel share, director-level-and-above share, peak vs low quarter, first meetings held, untracked channels, unlogged funnel stages). Build the story around the 2-3 sharpest ones. Prefer a specific comparison (\"LinkedIn produced 87 of 111 appointments\") over a total.",

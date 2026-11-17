@@ -68,6 +68,11 @@ function insights(r: RevampCaseStudy) {
     };
   }
 
+  const current = r.progression.quarters.find((q) => q.isPartial);
+  if (current) {
+    out.campaignOngoing = true;
+    out.currentPeriod = { label: current.label, countSoFar: current.count ?? 0, note: "still running, not a full period" };
+  }
   const full = r.progression.quarters.filter((q) => !q.isPartial && q.count !== null);
   if (full.length >= 2) {
     const peak = [...full].sort((a, b) => (b.count ?? 0) - (a.count ?? 0))[0];
