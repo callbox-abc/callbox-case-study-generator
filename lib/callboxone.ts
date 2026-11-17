@@ -9,6 +9,7 @@ import type { RevampCaseStudy } from "@/lib/revamp";
 export class CallboxOneConfigError extends Error {}
 
 const ALLOWED_TOOLS = new Set([
+  "get_identity",
   "search_campaign_by_name",
   "list_campaigns",
   "get_report_stats",

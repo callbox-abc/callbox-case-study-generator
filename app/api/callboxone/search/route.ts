@@ -7,7 +7,12 @@ export async function GET(req: NextRequest) {
   if (q.length < 2) return NextResponse.json({ campaigns: [] });
 
   try {
-    const data = await withCallboxOne((call) => call("list_campaigns", { q, limit: 25 }));
+    const { data, identity } = await withCallboxOne(async (call) => {
+      let res = await call("list_campaigns", { q, limit: 25 });
+      // list_campaigns matches code/company/client; search_campaign_by_name also matches campaign_name.
+      if (!res?.campaigns?.length) res = await call("search_campaign_by_name", { campaignName: q, limit: 25 });
+      return { data: res, identity: res?.identity ?? (await call("get_identity", {}))?.identity ?? null };
+    });
     const campaigns = (data?.campaigns || []).map((c: any) => {
       const start = startFromCampaignCode(c.campaignName);
       return {
@@ -19,7 +24,10 @@ export async function GET(req: NextRequest) {
         start: start ? start.toISOString().slice(0, 7) : null,
       };
     });
-    return NextResponse.json({ campaigns });
+    return NextResponse.json({
+      campaigns,
+      identity: identity ? { userName: identity.userName ?? null, globalClientScope: Boolean(identity.globalClientScope) } : null,
+    });
   } catch (err: any) {
     const status = err instanceof CallboxOneConfigError ? 500 : 502;
     return NextResponse.json({ error: err?.message || "CallboxOne search failed." }, { status });
