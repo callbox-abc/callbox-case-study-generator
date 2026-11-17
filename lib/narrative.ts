@@ -35,9 +35,65 @@ export const NARRATIVE_SHAPE = `{
   "whereNext": {"heading": string, "intro": string, "recommendations": [{"title": string, "body": string}]}
 }`;
 
+// Pre-computed, data-backed insights so the model leads with the sharpest facts instead of
+// restating totals. Every number here also becomes an allowed number for the guard.
+function insights(r: RevampCaseStudy) {
+  const out: Record<string, unknown> = {};
+  const tracked = r.channels.rows.filter((x) => x.appointments !== null);
+  const apptTotal = tracked.reduce((t, x) => t + (x.appointments ?? 0), 0);
+  if (apptTotal > 0) {
+    const top = [...tracked].sort((a, b) => (b.appointments ?? 0) - (a.appointments ?? 0))[0];
+    out.topChannel = {
+      name: top.name,
+      appointments: top.appointments,
+      ofTrackedAppointments: apptTotal,
+      sharePct: Math.round(((top.appointments ?? 0) / apptTotal) * 100),
+    };
+  }
+  const untracked = r.channels.rows.filter((x) => x.appointments === null).map((x) => x.name);
+  if (untracked.length) out.channelsWithoutAppointmentTracking = untracked;
+
+  const roles = r.howItRan.roles.filter((x) => x.count !== null);
+  const titled = roles.reduce((t, x) => t + (x.count ?? 0), 0);
+  if (titled > 0) {
+    const senior = roles.filter((x) => /c-suite|vp|director|head/i.test(x.role)).reduce((t, x) => t + (x.count ?? 0), 0);
+    const top = [...roles].sort((a, b) => (b.count ?? 0) - (a.count ?? 0))[0];
+    out.seniority = {
+      appointmentsWithTitle: titled,
+      directorLevelAndAbove: senior,
+      directorLevelAndAbovePct: Math.round((senior / titled) * 100),
+      largestGroup: top.role,
+      largestGroupCount: top.count,
+      largestGroupPct: Math.round(((top.count ?? 0) / titled) * 100),
+    };
+  }
+
+  const full = r.progression.quarters.filter((q) => !q.isPartial && q.count !== null);
+  if (full.length >= 2) {
+    const peak = [...full].sort((a, b) => (b.count ?? 0) - (a.count ?? 0))[0];
+    const low = [...full].sort((a, b) => (a.count ?? 0) - (b.count ?? 0))[0];
+    out.quarters = {
+      peakQuarter: peak.label,
+      peakCount: peak.count,
+      lowQuarter: low.label,
+      lowCount: low.count,
+      peakVsLowTimes: low.count ? Math.round(((peak.count ?? 0) / low.count) * 10) / 10 : null,
+      fullQuarters: full.length,
+    };
+  }
+
+  const set = r.funnel.stages[0]?.value ?? null;
+  const held = r.funnel.stages[1]?.value ?? null;
+  if (set && held) out.firstMeetingsHeld = { held, of: set, pct: Math.round((held / set) * 1000) / 10 };
+  const unlogged = r.funnel.stages.filter((x) => x.value === null).map((x) => x.name);
+  if (unlogged.length) out.funnelStagesNotLogged = unlogged;
+  return out;
+}
+
 // The facts the model may use: numbers, labels and any writer text already on the sheet.
 export function narrativeInput(r: RevampCaseStudy) {
   return {
+    insights: insights(r),
     existingText: {
       clientName: r.clientName, solutionLines: r.solutionLines, country: r.country,
       headline: r.headline, dek: r.dek,
@@ -129,6 +185,55 @@ export function guardText(text: string, A: Allowed, dropped: { n: number }): str
   return kept.join(" ").trim();
 }
 
+/* ------------------------------- house style ------------------------------- */
+
+// Unsupported quality claims: the data can't back "high-quality" or "a significant portion".
+const VAGUE_CLAIM = /\b(high[- ]quality|top[- ]tier|best[- ]in[- ]class|world[- ]class|significant portion|significant number|vast majority)\b/i;
+
+// Filler words removed or swapped for plain ones.
+export function plainWords(t: string): string {
+  return t
+    .replace(/\s*\b(successfully|effectively|seamlessly)\b/gi, "")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/\butiliz(e|es|ed|ing)\b/gi, (_m, e: string) => ({ e: "use", es: "uses", ed: "used", ing: "using" } as Record<string, string>)[e.toLowerCase()])
+    .replace(/\bleverag(e|es|ed|ing)\b/gi, (_m, e: string) => ({ e: "use", es: "uses", ed: "used", ing: "using" } as Record<string, string>)[e.toLowerCase()])
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+export function dropVague(text: string, dropped: { n: number }): string {
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  const kept = sentences.filter((s) => {
+    const ok = !VAGUE_CLAIM.test(s);
+    if (!ok) dropped.n += 1;
+    return ok;
+  });
+  return kept.join(" ").trim();
+}
+
+const MONTHS_RE = /^(january|february|march|april|may|june|july|august|september|october|november|december)$/i;
+
+// Sentence case for headings and item titles: "Multi-Channel Engagement" -> "Multi-channel engagement".
+// Keeps acronyms (IT, CIO), mixed case (LinkedIn), Q-labels, months, Callbox and the client's name.
+export function sentenceCase(t: string, keep: Set<string>): string {
+  const words = t.split(/\s+/);
+  return words
+    .map((w, i) =>
+      w
+        .split("-")
+        .map((part, j) => {
+          if (i === 0 && j === 0) return part;
+          const m = /^([A-Z][a-z]+)([’'][a-z]+)?([,:;.!?)]*)$/.exec(part);
+          if (!m) return part;
+          const core = m[1];
+          if (MONTHS_RE.test(core) || core === "Callbox" || keep.has(core.toLowerCase())) return part;
+          return part.toLowerCase();
+        })
+        .join("-")
+    )
+    .join(" ");
+}
+
 /* ---------------------------------- merge ---------------------------------- */
 
 const empty = (v: unknown) => (Array.isArray(v) ? v.length === 0 : !String(v ?? "").trim());
@@ -140,12 +245,19 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
   const allowed = allowedNumbers(r);
   const dropped = { n: 0 };
   const drafted: string[] = [];
-  const g = (t: unknown) => guardText(String(t ?? ""), allowed, dropped);
+  // Proper words from the client's own name stay capitalized in sentence-case headings.
+  const keep = new Set(
+    [r.clientName, r.solutionLines, r.country].join(" ").toLowerCase().split(/[^a-z]+/).filter(Boolean)
+  );
+  // Body text: number guard, then filler words, then unsupported quality claims.
+  const g = (t: unknown) => dropVague(plainWords(guardText(String(t ?? ""), allowed, dropped)), dropped);
+  // Headings and item titles: same checks plus sentence case and no trailing punctuation.
+  const gh = (t: unknown) => sentenceCase(g(t).replace(/[\s:;,.]+$/, ""), keep);
   const gl = (xs: unknown) => (Array.isArray(xs) ? xs.map(g).filter(Boolean) : []);
   const gt = (xs: unknown): TitledItem[] =>
     Array.isArray(xs)
       ? xs
-          .map((x: any) => ({ title: g(x?.title).replace(/[\s:;,.]+$/, ""), body: g(x?.body) }))
+          .map((x: any) => ({ title: gh(x?.title), body: g(x?.body) }))
           .filter((x) => x.title && x.body)
       : [];
 
@@ -156,7 +268,7 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
     }
   };
 
-  set("Headline", next.headline, g(draft.headline), (v) => (next.headline = v));
+  set("Headline", next.headline, gh(draft.headline), (v) => (next.headline = v));
   // Highlight must be an exact substring of the (final) headline.
   const hl = g(draft.headlineHighlight);
   if (empty(next.headlineHighlight) && hl && next.headline.includes(hl)) next.headlineHighlight = hl;
@@ -164,33 +276,38 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
   set("Sub-dek", next.subDek, g(draft.subDek), (v) => (next.subDek = v));
 
   const S = draft.situation || {};
-  set("Situation heading", next.situation.heading, g(S.heading), (v) => (next.situation.heading = v));
+  set("Situation heading", next.situation.heading, gh(S.heading), (v) => (next.situation.heading = v));
   set("Situation text", next.situation.body, gl(S.body), (v) => (next.situation.body = v));
   set("Pull stat", next.situation.pullStat, g(S.pullStat), (v) => (next.situation.pullStat = v));
 
   const C = draft.channels || {};
   if (next.channels.rows.length) {
-    set("Channels heading", next.channels.heading, g(C.heading), (v) => (next.channels.heading = v));
+    set("Channels heading", next.channels.heading, gh(C.heading), (v) => (next.channels.heading = v));
     set("Channels intro", next.channels.intro, g(C.intro), (v) => (next.channels.intro = v));
     set("Channel takeaways", next.channels.takeaways, gt(C.takeaways).slice(0, 2), (v) => (next.channels.takeaways = v));
   }
 
   const H = draft.howItRan || {};
-  set("How it ran heading", next.howItRan.heading, g(H.heading), (v) => (next.howItRan.heading = v));
+  set("How it ran heading", next.howItRan.heading, gh(H.heading), (v) => (next.howItRan.heading = v));
   set("How it ran steps", next.howItRan.steps, gt(H.steps).slice(0, 4), (v) => (next.howItRan.steps = v));
   if (next.howItRan.roles.length) {
-    set("Roles heading", next.howItRan.rolesHeading, g(H.rolesHeading), (v) => (next.howItRan.rolesHeading = v));
+    set("Roles heading", next.howItRan.rolesHeading, gh(H.rolesHeading), (v) => (next.howItRan.rolesHeading = v));
     set("Roles intro", next.howItRan.rolesIntro, g(H.rolesIntro), (v) => (next.howItRan.rolesIntro = v));
   }
 
   const P = draft.progression || {};
   if (next.progression.quarters.length) {
-    set("Progression heading", next.progression.heading, g(P.heading), (v) => (next.progression.heading = v));
+    set("Progression heading", next.progression.heading, gh(P.heading), (v) => (next.progression.heading = v));
     set("Progression text", next.progression.body, gl(P.body), (v) => (next.progression.body = v));
     let notes = 0;
     for (const qn of Array.isArray(P.quarterNotes) ? P.quarterNotes : []) {
       const q = next.progression.quarters.find((x) => x.label === qn?.label);
-      const note = g(qn?.note);
+      // The count is already shown above the note: drop notes that only restate it,
+      // and trim "with 35 appointments" tails.
+      const note = g(qn?.note)
+        .replace(/\s*(,\s*)?with\s+\d[\d,]*\s+(sales-qualified\s+)?appointments?/i, "")
+        .replace(/^\s*\d[\d,]*\s+(sales-qualified\s+)?appointments?\.?\s*$/i, "")
+        .trim();
       if (q && empty(q.note) && note) {
         q.note = note;
         notes += 1;
@@ -201,16 +318,16 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
 
   const F = draft.funnel || {};
   if (next.funnel.stages.length) {
-    set("Funnel heading", next.funnel.heading, g(F.heading), (v) => (next.funnel.heading = v));
+    set("Funnel heading", next.funnel.heading, gh(F.heading), (v) => (next.funnel.heading = v));
     set("Funnel intro", next.funnel.intro, g(F.intro), (v) => (next.funnel.intro = v));
   }
 
   const W = draft.whatChanged || {};
-  set("What changed heading", next.whatChanged.heading, g(W.heading), (v) => (next.whatChanged.heading = v));
+  set("What changed heading", next.whatChanged.heading, gh(W.heading), (v) => (next.whatChanged.heading = v));
   set("Outcomes", next.whatChanged.outcomes, gl(W.outcomes).slice(0, 4), (v) => (next.whatChanged.outcomes = v));
 
   const N = draft.whereNext || {};
-  set("Where next heading", next.whereNext.heading, g(N.heading), (v) => (next.whereNext.heading = v));
+  set("Where next heading", next.whereNext.heading, gh(N.heading), (v) => (next.whereNext.heading = v));
   set("Where next intro", next.whereNext.intro, g(N.intro), (v) => (next.whereNext.intro = v));
   set("Recommendations", next.whereNext.recommendations, gt(N.recommendations).slice(0, 3), (v) => (next.whereNext.recommendations = v));
   if (next.whereNext.recommendations.length && empty(next.whereNext.footnote)) {

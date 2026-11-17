@@ -272,7 +272,12 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "baseline", marginBottom: 14 }}>
         {(["clientName", "solutionLines", "country"] as const).map((k, i) => (
           <div key={k} style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-            {i > 0 && <Mono color={C.onDarkMute}>·</Mono>}
+            {i > 0 && (
+              // A separator prints only between two filled values; empty fields are edit-only.
+              <div className={r[k].trim() && (["clientName", "solutionLines", "country"] as const).slice(0, i).some((x) => r[x].trim()) ? "" : "no-print"}>
+                <Mono color={C.onDarkMute}>·</Mono>
+              </div>
+            )}
             <div style={{ fontFamily: MONO, fontSize: 10.5, letterSpacing: "0.12em", textTransform: "uppercase", color: C.onDark, minWidth: 60 }}>
               <T dark value={r[k]} onChange={(v) => up((d) => { d[k] = v; })} placeholder={k === "clientName" ? "Client" : k === "country" ? "Country" : "Solution lines"}
                 style={{ fontFamily: MONO, textTransform: "uppercase", width: `${Math.max(8, (r[k] || "").length + 2)}ch` }} />
