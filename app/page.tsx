@@ -62,6 +62,49 @@ export default function Page() {
   const cmsPageIdRef = useRef<number | null>(null);
   const [showImport, setShowImport] = useState(false);
 
+  // "Draft missing text with AI": fills only EMPTY narrative fields from the sheet's own data.
+  // The server drops any sentence whose numbers are not in the data (lib/narrative.ts).
+  const [aiState, setAiState] = useState<"idle" | "drafting" | "done" | "error">("idle");
+  const [aiMsg, setAiMsg] = useState("");
+  const [aiDrafted, setAiDrafted] = useState<string[]>([]);
+  const draftWithAi = async () => {
+    setAiState("drafting");
+    setAiMsg("Drafting the empty sections from the data… (about 20 to 40 seconds)");
+    try {
+      const res = await fetch("/api/draft-narrative", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sheet: cs, sourceText }),
+      });
+      const text = await res.text();
+      let json: any;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        throw new Error(
+          res.status === 504 || /an error occurred/i.test(text)
+            ? "The AI took too long to answer. Try again."
+            : `Server error (HTTP ${res.status}).`
+        );
+      }
+      if (!res.ok) throw new Error(json.error || "Drafting failed.");
+      setCs(normalizeRevamp(json.sheet));
+      const drafted: string[] = json.drafted || [];
+      setAiDrafted(drafted);
+      const dropped = Number(json.droppedSentences) || 0;
+      setAiMsg(
+        (drafted.length
+          ? `AI drafted ${drafted.length} field${drafted.length === 1 ? "" : "s"}. Review them before downloading or sending to the CMS.`
+          : "Nothing to draft: every field the data supports already has text.") +
+          (dropped ? ` ${dropped} sentence${dropped === 1 ? " was" : "s were"} removed because their numbers weren't in the data.` : "")
+      );
+      setAiState("done");
+    } catch (e: any) {
+      setAiMsg(e?.message || "Drafting failed.");
+      setAiState("error");
+    }
+  };
+
   // The browser/print document title must come from the document's own "PDF Title" field
   // (a distinct metadata field in the source, separate from the on-page case study headline
   // shown in the hero). Fall back to the on-page title, then the app name, if it's empty.
@@ -485,6 +528,13 @@ export default function Page() {
             {showImport ? "Hide CallboxOne import" : "Import from CallboxOne"}
           </button>
           <button
+            onClick={draftWithAi}
+            disabled={aiState === "drafting"}
+            style={{ ...btnGhost, padding: "8px 16px", fontSize: 12, borderColor: YELLOW, color: YELLOW, opacity: aiState === "drafting" ? 0.6 : 1 }}
+          >
+            {aiState === "drafting" ? "Drafting…" : "Draft missing text with AI"}
+          </button>
+          <button
             onClick={sendToCms}
             disabled={cmsState === "sending"}
             style={{ ...btnGhost, padding: "8px 16px", fontSize: 12, opacity: cmsState === "sending" ? 0.6 : 1 }}
@@ -498,6 +548,41 @@ export default function Page() {
       </div>
 
       {showImport && <CallboxOneImport up={up} onClose={() => setShowImport(false)} />}
+
+      {aiState !== "idle" && (
+        <div
+          className="app-toolbar"
+          role="status"
+          style={{
+            maxWidth: 1100,
+            margin: "10px auto 0",
+            padding: "10px 16px",
+            borderRadius: 8,
+            border: "1px solid " + (aiState === "error" ? "#7f1d1d" : YELLOW),
+            background: CARD_BG,
+            color: aiState === "error" ? "#fca5a5" : MUTED_LIGHT,
+            fontSize: 13,
+          }}
+        >
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+            <span>{aiMsg}</span>
+            {aiState === "done" && (
+              <button
+                onClick={() => {
+                  setAiState("idle");
+                  setAiDrafted([]);
+                }}
+                style={{ ...btnGhost, padding: "6px 12px", fontSize: 12 }}
+              >
+                Mark as reviewed
+              </button>
+            )}
+          </div>
+          {aiState === "done" && aiDrafted.length > 0 && (
+            <div style={{ marginTop: 6, color: MUTED }}>AI-written: {aiDrafted.join(" · ")}</div>
+          )}
+        </div>
+      )}
 
       {cmsState !== "idle" && (
         <div

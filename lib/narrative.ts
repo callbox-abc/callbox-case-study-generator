@@ -1,0 +1,221 @@
+// AI drafting of the empty narrative fields, grounded in the sheet's own data.
+//
+// Guardrails enforced in code (not only in the prompt):
+//  1. Only fields that are empty in the sheet are filled; writer text is never replaced.
+//  2. Any drafted sentence containing a number that is not in the sheet's data (or a percentage
+//     derived from two of its numbers) is dropped.
+//  3. Fields with no data behind them are never drafted: client name, country, solution lines,
+//     primary contact persona, client quote, facts.
+//  4. Em dashes are removed (house style).
+
+import type { RevampCaseStudy, TitledItem } from "@/lib/revamp";
+
+export type NarrativeDraft = {
+  headline?: string;
+  headlineHighlight?: string;
+  dek?: string;
+  subDek?: string;
+  situation?: { heading?: string; body?: string[]; pullStat?: string };
+  channels?: { heading?: string; intro?: string; takeaways?: TitledItem[] };
+  howItRan?: { heading?: string; steps?: TitledItem[]; rolesHeading?: string; rolesIntro?: string };
+  progression?: { heading?: string; body?: string[]; quarterNotes?: { label: string; note: string }[] };
+  funnel?: { heading?: string; intro?: string };
+  whatChanged?: { heading?: string; outcomes?: string[] };
+  whereNext?: { heading?: string; intro?: string; recommendations?: TitledItem[] };
+};
+
+export const NARRATIVE_SHAPE = `{
+  "headline": string, "headlineHighlight": string, "dek": string, "subDek": string,
+  "situation": {"heading": string, "body": string[], "pullStat": string},
+  "channels": {"heading": string, "intro": string, "takeaways": [{"title": string, "body": string}]},
+  "howItRan": {"heading": string, "steps": [{"title": string, "body": string}], "rolesHeading": string, "rolesIntro": string},
+  "progression": {"heading": string, "body": string[], "quarterNotes": [{"label": string, "note": string}]},
+  "funnel": {"heading": string, "intro": string},
+  "whatChanged": {"heading": string, "outcomes": string[]},
+  "whereNext": {"heading": string, "intro": string, "recommendations": [{"title": string, "body": string}]}
+}`;
+
+// The facts the model may use: numbers, labels and any writer text already on the sheet.
+export function narrativeInput(r: RevampCaseStudy) {
+  return {
+    existingText: {
+      clientName: r.clientName, solutionLines: r.solutionLines, country: r.country,
+      headline: r.headline, dek: r.dek,
+      situation: r.situation, primaryContactRole: r.primaryContact.role,
+      howItRanSteps: r.howItRan.steps, outcomes: r.whatChanged.outcomes,
+    },
+    heroStats: r.heroStats,
+    facts: r.facts,
+    channels: r.channels.rows,
+    appointmentsBySeniority: r.howItRan.roles,
+    rolesFootnote: r.howItRan.rolesFootnote,
+    quarters: r.progression.quarters.map((q) => ({ label: q.label, count: q.count, isPeak: q.isPeak, isPartial: q.isPartial })),
+    chartMeta: r.progression.chartMeta,
+    funnel: r.funnel.stages,
+    methodologyNote: r.methodologyNote,
+  };
+}
+
+/* ------------------------------- number guard ------------------------------- */
+
+const NUM = /\d[\d,]*(?:\.\d+)?%?/g;
+const norm = (t: string) => t.replace(/,/g, "").replace(/%$/, "");
+
+// base: numbers that appear in the data, plus small counts.
+// pct: percentages computed from two key numbers (only valid with "%" or "percent").
+// ratio: "x times" ratios computed from two key numbers (only valid with "times", "x" or "-fold").
+export type Allowed = { base: Set<string>; pct: Set<string>; ratio: Set<string> };
+
+export function allowedNumbers(r: RevampCaseStudy): Allowed {
+  const base = new Set<string>();
+  const pct = new Set<string>();
+  const ratio = new Set<string>();
+  for (const m of JSON.stringify(narrativeInput(r)).match(NUM) || []) base.add(norm(m));
+  for (let i = 0; i <= 24; i++) base.add(String(i));
+
+  const key: number[] = [];
+  for (const s of r.heroStats) {
+    const v = Number(norm(s.value));
+    if (Number.isFinite(v)) key.push(v);
+  }
+  for (const x of r.channels.rows) if (x.appointments !== null) key.push(x.appointments);
+  for (const x of r.howItRan.roles) if (x.count !== null) key.push(x.count);
+  for (const x of r.progression.quarters) if (x.count !== null) key.push(x.count);
+  for (const x of r.funnel.stages) if (x.value !== null) key.push(x.value);
+  const totalRoles = r.howItRan.roles.reduce((t, x) => t + (x.count ?? 0), 0);
+  if (totalRoles) key.push(totalRoles);
+  for (const a of key)
+    for (const b of key) {
+      if (b > 0 && a <= b) {
+        const p = (a / b) * 100;
+        pct.add(String(Math.round(p)));
+        pct.add(String(Math.round(p * 10) / 10));
+      }
+      if (b > 0 && a > b) {
+        const q = a / b;
+        ratio.add(String(Math.round(q * 10) / 10));
+        ratio.add(String(Math.round(q)));
+      }
+    }
+  return { base, pct, ratio };
+}
+
+// The data has no money figures, so any monetary claim is unsupported by definition.
+const MONEY = /[$€£¥]|\b(usd|eur|revenue|roi|million|billion|worth|deal value|pipeline value|arr|mrr)\b/i;
+
+function numberOk(sentence: string, m: RegExpMatchArray, A: Allowed): boolean {
+  const tok = m[0];
+  const v = norm(tok);
+  const after = sentence.slice((m.index ?? 0) + tok.length, (m.index ?? 0) + tok.length + 12).toLowerCase();
+  if (tok.endsWith("%") || /^\s*percent/.test(after)) return A.base.has(v) || A.pct.has(v);
+  if (A.base.has(v)) return true;
+  if (/^\s*(x\b|times\b|-?fold\b)/.test(after)) return A.ratio.has(v);
+  return false;
+}
+
+const stripDashes = (t: string) => t.replace(/\s*—\s*/g, ", ").replace(/\s+-\s+/g, ", ");
+
+// Removes sentences with unsupported numbers or any money claim. Returns the cleaned text.
+export function guardText(text: string, A: Allowed, dropped: { n: number }): string {
+  const clean = stripDashes(String(text || "").trim());
+  if (!clean) return "";
+  // Split only at sentence ends (punctuation followed by whitespace), so decimals like 2.5 stay whole.
+  const sentences = clean.split(/(?<=[.!?])\s+/);
+  const kept = sentences.filter((s) => {
+    const ok = !MONEY.test(s) && [...s.matchAll(NUM)].every((m) => numberOk(s, m, A));
+    if (!ok) dropped.n += 1;
+    return ok;
+  });
+  return kept.join(" ").trim();
+}
+
+/* ---------------------------------- merge ---------------------------------- */
+
+const empty = (v: unknown) => (Array.isArray(v) ? v.length === 0 : !String(v ?? "").trim());
+
+// Fills only empty fields of `r` from the draft, after the number guard. Returns the new sheet,
+// the list of drafted fields (for the review banner) and how many sentences were dropped.
+export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
+  const next: RevampCaseStudy = structuredClone(r);
+  const allowed = allowedNumbers(r);
+  const dropped = { n: 0 };
+  const drafted: string[] = [];
+  const g = (t: unknown) => guardText(String(t ?? ""), allowed, dropped);
+  const gl = (xs: unknown) => (Array.isArray(xs) ? xs.map(g).filter(Boolean) : []);
+  const gt = (xs: unknown): TitledItem[] =>
+    Array.isArray(xs)
+      ? xs
+          .map((x: any) => ({ title: g(x?.title).replace(/[\s:;,.]+$/, ""), body: g(x?.body) }))
+          .filter((x) => x.title && x.body)
+      : [];
+
+  const set = <T>(label: string, current: T, value: T, apply: (v: T) => void) => {
+    if (empty(current) && !empty(value)) {
+      apply(value);
+      drafted.push(label);
+    }
+  };
+
+  set("Headline", next.headline, g(draft.headline), (v) => (next.headline = v));
+  // Highlight must be an exact substring of the (final) headline.
+  const hl = g(draft.headlineHighlight);
+  if (empty(next.headlineHighlight) && hl && next.headline.includes(hl)) next.headlineHighlight = hl;
+  set("Dek", next.dek, g(draft.dek), (v) => (next.dek = v));
+  set("Sub-dek", next.subDek, g(draft.subDek), (v) => (next.subDek = v));
+
+  const S = draft.situation || {};
+  set("Situation heading", next.situation.heading, g(S.heading), (v) => (next.situation.heading = v));
+  set("Situation text", next.situation.body, gl(S.body), (v) => (next.situation.body = v));
+  set("Pull stat", next.situation.pullStat, g(S.pullStat), (v) => (next.situation.pullStat = v));
+
+  const C = draft.channels || {};
+  if (next.channels.rows.length) {
+    set("Channels heading", next.channels.heading, g(C.heading), (v) => (next.channels.heading = v));
+    set("Channels intro", next.channels.intro, g(C.intro), (v) => (next.channels.intro = v));
+    set("Channel takeaways", next.channels.takeaways, gt(C.takeaways).slice(0, 2), (v) => (next.channels.takeaways = v));
+  }
+
+  const H = draft.howItRan || {};
+  set("How it ran heading", next.howItRan.heading, g(H.heading), (v) => (next.howItRan.heading = v));
+  set("How it ran steps", next.howItRan.steps, gt(H.steps).slice(0, 4), (v) => (next.howItRan.steps = v));
+  if (next.howItRan.roles.length) {
+    set("Roles heading", next.howItRan.rolesHeading, g(H.rolesHeading), (v) => (next.howItRan.rolesHeading = v));
+    set("Roles intro", next.howItRan.rolesIntro, g(H.rolesIntro), (v) => (next.howItRan.rolesIntro = v));
+  }
+
+  const P = draft.progression || {};
+  if (next.progression.quarters.length) {
+    set("Progression heading", next.progression.heading, g(P.heading), (v) => (next.progression.heading = v));
+    set("Progression text", next.progression.body, gl(P.body), (v) => (next.progression.body = v));
+    let notes = 0;
+    for (const qn of Array.isArray(P.quarterNotes) ? P.quarterNotes : []) {
+      const q = next.progression.quarters.find((x) => x.label === qn?.label);
+      const note = g(qn?.note);
+      if (q && empty(q.note) && note) {
+        q.note = note;
+        notes += 1;
+      }
+    }
+    if (notes) drafted.push("Quarter notes");
+  }
+
+  const F = draft.funnel || {};
+  if (next.funnel.stages.length) {
+    set("Funnel heading", next.funnel.heading, g(F.heading), (v) => (next.funnel.heading = v));
+    set("Funnel intro", next.funnel.intro, g(F.intro), (v) => (next.funnel.intro = v));
+  }
+
+  const W = draft.whatChanged || {};
+  set("What changed heading", next.whatChanged.heading, g(W.heading), (v) => (next.whatChanged.heading = v));
+  set("Outcomes", next.whatChanged.outcomes, gl(W.outcomes).slice(0, 4), (v) => (next.whatChanged.outcomes = v));
+
+  const N = draft.whereNext || {};
+  set("Where next heading", next.whereNext.heading, g(N.heading), (v) => (next.whereNext.heading = v));
+  set("Where next intro", next.whereNext.intro, g(N.intro), (v) => (next.whereNext.intro = v));
+  set("Recommendations", next.whereNext.recommendations, gt(N.recommendations).slice(0, 3), (v) => (next.whereNext.recommendations = v));
+  if (next.whereNext.recommendations.length && empty(next.whereNext.footnote)) {
+    next.whereNext.footnote = "This section is a Callbox recommendation, not a result the client has reported.";
+  }
+
+  return { next, drafted, droppedSentences: dropped.n };
+}
