@@ -39,7 +39,9 @@ function T({
   style?: React.CSSProperties; dark?: boolean;
 }) {
   return (
-    <div className={dark ? "ef ef-dark" : "ef"}>
+    // Empty fields are edit-only: "no-print" keeps their placeholder out of the PDF text layer
+    // and out of the pre-print height measurement.
+    <div className={(dark ? "ef ef-dark" : "ef") + (value?.trim() ? "" : " no-print")}>
       <EditableField value={value} onChange={onChange} placeholder={placeholder} multiline={multiline} style={style} />
     </div>
   );
@@ -49,7 +51,7 @@ function Num({
   value, onChange, style, placeholder = "n/a",
 }: { value: number | null; onChange: (v: number | null) => void; style?: React.CSSProperties; placeholder?: string }) {
   return (
-    <span className="ef" style={{ display: "inline-block" }}>
+    <span className={value === null ? "ef no-print" : "ef"} style={{ display: "inline-block" }}>
       <input
         inputMode="numeric"
         value={value === null ? "" : String(value)}
