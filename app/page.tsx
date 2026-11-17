@@ -547,6 +547,10 @@ export default function Page() {
         .sk-dark { background: linear-gradient(90deg, rgba(255,255,255,0.07) 25%, rgba(255,255,255,0.16) 45%, rgba(255,255,255,0.07) 65%); background-size: 400% 100%; }
         @keyframes skShimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
         @media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+        .not-printed { position: relative; }
+        .not-printed > * { opacity: 0.45; }
+        .not-printed:hover { outline: 1px dashed rgba(107,107,107,0.6); outline-offset: 2px; border-radius: 6px; }
+        .not-printed:hover::after { content: "Not in PDF"; position: absolute; top: -9px; right: 6px; z-index: 5; pointer-events: none; font: 600 9px/1 var(--font-mono), ui-monospace, monospace; letter-spacing: 0.08em; text-transform: uppercase; background: #231F20; color: #FFFFFF; padding: 3px 6px; border-radius: 4px; }
         .editable-field { transition: background 0.1s; border-radius: 4px; }
         .editable-field:hover { background: rgba(245,185,20,0.08); }
         .editable-field:focus-within { background: rgba(245,185,20,0.12); }

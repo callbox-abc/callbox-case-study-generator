@@ -10,6 +10,7 @@ type Campaign = {
   clientName: string;
   teamLeader: string | null;
   start: string | null;
+  timezone?: string | null;
 };
 
 const box: React.CSSProperties = {
@@ -135,6 +136,8 @@ export default function CallboxOneImport({
       const worker = async () => {
         while (next < windows.length) await fetchWindow(next++);
       };
+      // Lists (counts and groups only) are fetched alongside the quarters; optional extra data.
+      const listsP = post({ step: "lists", clientId: c.clientId, clientAccountId: c.clientAccountId }).catch(() => ({ lists: null }));
       const progressionP = post({
         step: "progression",
         clientId: c.clientId,
@@ -143,9 +146,10 @@ export default function CallboxOneImport({
       });
       await Promise.all([worker(), worker(), worker()]);
       const { progression } = await progressionP;
+      const { lists } = await listsP;
 
       setMsg("Building the data sections…");
-      const json = await post({ step: "build", campaign: c, windows, perWindow, progression });
+      const json = await post({ step: "build", campaign: c, windows, perWindow, progression, lists });
       const p = json.patch;
       up((d) => {
         d.heroStats = p.heroStats;

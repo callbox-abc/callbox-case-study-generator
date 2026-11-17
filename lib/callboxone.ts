@@ -10,6 +10,7 @@ export class CallboxOneConfigError extends Error {}
 
 const ALLOWED_TOOLS = new Set([
   "get_identity",
+  "list_client_lists",
   "search_campaign_by_name",
   "list_campaigns",
   "get_report_stats",
@@ -166,6 +167,78 @@ const add = (a: Totals, b: Totals): Totals =>
 const fmt = (x: number) => x.toLocaleString("en-US");
 const pct = (a: number, b: number) => (b > 0 ? `${Math.round((a / b) * 1000) / 10}%` : "");
 
+/* --------------------------------- lists --------------------------------- */
+
+// Prospect lists worked on the campaign, grouped by what kind of list they are. Only counts and
+// groups leave the server: list names often carry data-vendor names and are never returned.
+export type ListSummary = { lists: number; records: number; mix: { kind: string; lists: number; records: number }[] };
+
+const LIST_KINDS: [RegExp, string][] = [
+  [/webinar|brighttalk|event|summit|conference/i, "webinar and event audiences"],
+  [/inbound/i, "inbound lead lists"],
+  [/engaged|re-?engag|reactivat|nurture|recycl/i, "re-engagement lists"],
+];
+
+export function listSummary(resp: any, clientAccountId: number): ListSummary | null {
+  const all = Array.isArray(resp?.lists) ? resp.lists : [];
+  const lists = all.filter((l: any) => !clientAccountId || Number(l?.clientAccountId) === Number(clientAccountId));
+  if (!lists.length) return null;
+  const groups = new Map<string, { lists: number; records: number }>();
+  let records = 0;
+  for (const l of lists) {
+    const name = String(l?.list || "");
+    const kind = LIST_KINDS.find(([re]) => re.test(name))?.[1] ?? "built and enriched prospect lists";
+    const n = Number(l?.recordCount) || 0;
+    records += n;
+    const g = groups.get(kind) ?? { lists: 0, records: 0 };
+    g.lists += 1;
+    g.records += n;
+    groups.set(kind, g);
+  }
+  const mix = Array.from(groups, ([kind, g]) => ({ kind, ...g })).sort((a, b) => b.lists - a.lists || b.records - a.records);
+  return { lists: lists.length, records, mix };
+}
+
+export function sanitizeListSummary(v: any): ListSummary | null {
+  if (!v || typeof v !== "object") return null;
+  const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) && x >= 0 ? Math.round(x) : 0);
+  const mix = Array.isArray(v.mix)
+    ? v.mix
+        .slice(0, 6)
+        .map((m: any) => ({ kind: String(m?.kind || "").slice(0, 60), lists: num(m?.lists), records: num(m?.records) }))
+        .filter((m: { kind: string; lists: number }) => m.kind && m.lists > 0)
+    : [];
+  const lists = num(v.lists);
+  return lists > 0 ? { lists, records: num(v.records), mix } : null;
+}
+
+/* ------------------------------ market (timezone) ------------------------------ */
+
+// The campaign's Pipeline time zone is where the campaign ran (the target market), not where the
+// client is based, so it fills a "Market" fact, never the client's country.
+const TZ_MARKET: [RegExp, string][] = [
+  [/^(US\/|America\/(New_York|Chicago|Denver|Los_Angeles|Phoenix|Anchorage|Detroit|Boise|Indiana)|Pacific\/Honolulu)/, "United States"],
+  [/^(Canada\/|America\/(Toronto|Vancouver|Edmonton|Winnipeg|Halifax|Regina|St_Johns))/, "Canada"],
+  [/^Australia\//, "Australia"],
+  [/^(Pacific\/Auckland|NZ)/, "New Zealand"],
+  [/^Asia\/Singapore/, "Singapore"],
+  [/^Asia\/Manila/, "Philippines"],
+  [/^Asia\/Hong_Kong/, "Hong Kong"],
+  [/^Asia\/Kuala_Lumpur/, "Malaysia"],
+  [/^Asia\/(Kolkata|Calcutta)/, "India"],
+  [/^Asia\/Dubai/, "United Arab Emirates"],
+  [/^Asia\/Tokyo/, "Japan"],
+  [/^(Europe\/London|GB)/, "United Kingdom"],
+  [/^Europe\/Dublin/, "Ireland"],
+  [/^America\/Bogota/, "Colombia"],
+  [/^America\/Mexico_City/, "Mexico"],
+];
+
+export function marketFromTimezone(tz: string | null | undefined): string {
+  const t = String(tz || "");
+  return TZ_MARKET.find(([re]) => re.test(t))?.[1] ?? "";
+}
+
 export type ImportResult = {
   campaign: { clientId: number; clientAccountId: number; campaignName: string; clientName: string };
   period: { from: string; to: string; months: number; ongoing: boolean };
@@ -185,6 +258,7 @@ export function buildPatch(
   windows: Window[],
   perWindow: Totals[],
   progression: any,
+  extras: { lists?: ListSummary | null; timezone?: string } = {},
 ): ImportResult {
   // A trailing period with no activity at all means the campaign has stopped: drop it, so the
   // duration ends at the last active period instead of reading as "ongoing".
@@ -199,6 +273,7 @@ export function buildPatch(
   const ongoing = windows[windows.length - 1]?.partial === true;
 
   const total = perWindow.reduce(add, ZERO);
+  const lists = extras.lists ?? null;
   const from = windows[0]?.from ?? "";
   const to = windows[windows.length - 1]?.to ?? "";
   const months = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / (30.44 * 864e5)));
@@ -249,13 +324,25 @@ export function buildPatch(
     ...(total.sql > 0 ? [{ value: fmt(total.sql), label: "Sales-qualified appointments" }] : []),
     ...(total.er > 0 ? [{ value: fmt(total.er), label: "Event registrations" }] : []),
     ...(total.liReplies > 0 ? [{ value: fmt(total.liReplies), label: "LinkedIn replies from target buyers" }] : []),
+    // Prospect records worked says more about scale than calls (calls are already in the channel row).
+    ...(lists && lists.records > 0
+      ? [{ value: fmt(lists.records), label: `Prospect records worked across ${lists.lists} list${lists.lists === 1 ? "" : "s"}` }]
+      : []),
     ...(total.voiceCalls > 0 ? [{ value: fmt(total.voiceCalls), label: "Calls placed" }] : []),
   ].slice(0, 4);
 
   const channelsWorked = rows.map((r) => r.name).join(", ");
+  const market = marketFromTimezone(extras.timezone);
   const facts = [
     { label: "Period measured", value: period },
+    ...(market ? [{ label: "Market", value: market }] : []),
     ...(channelsWorked ? [{ label: "Channels worked", value: channelsWorked }] : []),
+    ...(lists && lists.records > 0
+      ? [{ label: "Lists worked", value: `${fmt(lists.lists)} list${lists.lists === 1 ? "" : "s"}, ${fmt(lists.records)} prospect records` }]
+      : []),
+    ...(lists && lists.mix.length
+      ? [{ label: "List sources", value: lists.mix.map((m) => `${m.lists} ${m.lists === 1 ? m.kind.replace(/lists$/, "list").replace(/audiences$/, "audience") : m.kind}`).join(", ") }]
+      : []),
   ];
 
   // Role chart: appointments by seniority, from the appointment records' job titles.
