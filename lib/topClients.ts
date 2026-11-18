@@ -72,6 +72,8 @@ export type JobStatus = {
   candidates: number;
   updatedAt: string | null;
   lastError: string | null;
+  imported: number; // of the top 5, how many have their import data saved
+  picks: number;
 };
 
 type CandidateRow = TopCampaign & { startIso: string };
@@ -190,6 +192,8 @@ export async function readSnapshot(): Promise<{ snapshot: TopClientsSnapshot | n
           candidates: st?.candidates?.length ?? 0,
           updatedAt: job.updated_at,
           lastError: st?.errors?.at(-1) ?? null,
+          imported: st?.imported ?? 0,
+          picks: st?.picks?.length ?? 0,
         }
       : null,
   };
