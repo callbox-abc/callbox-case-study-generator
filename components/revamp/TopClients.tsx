@@ -198,7 +198,7 @@ export function TopClients({ onPick, disabled }: { onPick: (c: TopClient) => voi
                 : "No snapshot yet. It's built every Monday at 8:00 AM PH."
             : [
                 `Snapshot from ${dayLabel(snap.refreshedAt)} · ranked ${snap.measured} of ${snap.candidates} clients`,
-                snap.skippedUnnamed ? `${snap.skippedUnnamed} skipped (no company name in CallboxOne or HubSpot)` : "",
+                snap.skippedUnnamed ? `${snap.skippedUnnamed} skipped (no matching client in HubSpot)` : "",
                 stale && job?.lastError && !running ? `last error: ${job.lastError}` : "",
                 stale && job?.status === "failed" ? "this week's update failed, so last week's list is shown" : "",
                 `next update ${dayLabel(snap.nextRefresh)}, 8:00 AM PH`,

@@ -60,7 +60,7 @@ export type TopClientsSnapshot = {
   nextRefresh: string;
   candidates: number;
   measured: number;
-  skippedUnnamed: number;
+  skippedUnnamed: number; // ranked, but no matching HubSpot company with deals (internal campaigns etc.)
   clients: TopClient[];
 };
 
@@ -325,15 +325,26 @@ async function companyFor(c: CandidateRow): Promise<ClientCandidate | null> {
 async function stepSelect(st: JobState) {
   const now = new Date();
   const ranked = [...st.rows].sort((a, b) => b.sql - a.sql || b.conv - a.conv);
-  const shortlist = ranked.slice(0, TOP * 3);
-  const companies = await Promise.all(shortlist.map((m) => companyFor(m).catch(() => null)));
+  const shortlist = ranked.slice(0, TOP * 5); // room for the ones skipped below
+  // Two lookups at a time: firing all of them at once hit HubSpot's search rate limit, and the
+  // rejected lookups looked like "no match" (no name, no logo).
+  const companies: (ClientCandidate | null)[] = new Array(shortlist.length).fill(null);
+  await pool(
+    shortlist.map((m, i) => ({ m, i })),
+    2,
+    async ({ m, i }) => {
+      companies[i] = await companyFor(m).catch(() => null);
+    }
+  );
   const picks: TopClient[] = [];
   const seen = new Set<string>();
   st.skippedUnnamed = 0;
   shortlist.forEach((m, i) => {
     if (picks.length >= TOP) return;
     const company = companies[i];
-    if (!company && OFFER_LABEL.test(m.clientName)) {
+    // A top client must be a HubSpot company with deals (every paying client is): this drops
+    // internal campaigns (e.g. "CS DVO NAM MKTG Reactivation") and guarantees a name and logo.
+    if (!company) {
       st.skippedUnnamed += 1;
       return;
     }
