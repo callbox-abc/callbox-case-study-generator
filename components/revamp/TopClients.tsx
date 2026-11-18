@@ -11,7 +11,7 @@ import type { TopClient, TopClientsPayload } from "@/lib/topClients";
 
 const LOGO_KEY = process.env.NEXT_PUBLIC_BRANDICONS_KEY || "";
 const YELLOW = "#f5b914";
-const PARALLEL = 3;
+const PARALLEL = 2; // CallboxOne slows down under load; more parallel batches only time out
 const card: React.CSSProperties = {
   display: "grid",
   gap: 6,
@@ -68,26 +68,51 @@ export default function TopClients({ onPick, disabled }: { onPick: (c: TopClient
     (async () => {
       const plan = await getJson("/api/top-clients?step=plan");
       if (!alive) return;
-      let checked = 0;
-      setProgress({ checked, total: plan.candidates });
-      // Batches are cached server-side: on later visits these return at once.
+      setProgress({ checked: 0, total: plan.candidates });
+      // Batches are cached server-side once complete: on later visits they return at once.
+      // A partial batch (it hit its deadline) is kept for now and retried once at the end.
+      const done = new Map<number, { checked: number; partial: boolean; rows: unknown[] }>();
+      const report = () => {
+        let checked = 0;
+        done.forEach((b) => (checked += b.checked));
+        if (alive) setProgress({ checked, total: plan.candidates });
+      };
+      let failuresInARow = 0;
+      const runBatch = async (i: number) => {
+        if (failuresInARow >= 3) return; // CallboxOne is struggling: stop instead of piling on
+        try {
+          const b = await getJson(`/api/top-clients?step=batch&i=${i}`);
+          failuresInARow = 0;
+          done.set(i, { checked: b.checked ?? 0, partial: Boolean(b.partial), rows: b.rows ?? [] });
+        } catch {
+          failuresInARow += 1;
+        }
+        report();
+      };
       let next = 0;
       const worker = async () => {
-        while (alive && next < plan.batches) {
-          const i = next++;
-          let b: any = null;
-          try {
-            b = await getJson(`/api/top-clients?step=batch&i=${i}`);
-          } catch {
-            b = await getJson(`/api/top-clients?step=batch&i=${i}`).catch(() => null); // one retry
-          }
-          checked += b?.checked ?? 0;
-          if (alive) setProgress({ checked, total: plan.candidates });
-        }
+        while (alive && next < plan.batches) await runBatch(next++);
       };
       await Promise.all(Array.from({ length: PARALLEL }, worker));
+      // One retry, one at a time, for batches that failed or stopped early.
+      for (let i = 0; alive && i < plan.batches; i++) if (!done.has(i) || done.get(i)!.partial) await runBatch(i);
       if (!alive) return;
-      const final = await getJson("/api/top-clients?step=final");
+      if (failuresInARow >= 3 && done.size === 0) throw new Error("CallboxOne is not answering right now. Try again later.");
+
+      let checked = 0;
+      const rows: unknown[] = [];
+      done.forEach((b) => {
+        checked += b.checked;
+        rows.push(...b.rows);
+      });
+      const complete = done.size === plan.batches && [...done.values()].every((b) => !b.partial);
+      const r = await fetch("/api/top-clients?step=final", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows, measured: checked, complete }),
+      });
+      const final = await r.json().catch(() => null);
+      if (!r.ok || !final) throw new Error(final?.error || `HTTP ${r.status}`);
       if (alive) setData(final);
     })().catch((e) => alive && setError(e?.message || "Could not load today's clients."));
     return () => {
@@ -142,7 +167,7 @@ export default function TopClients({ onPick, disabled }: { onPick: (c: TopClient
         <span>
           {!data
             ? progress
-              ? `Checking today's clients: ${progress.checked} of ${progress.total}… The first check after 8:00 AM PH takes a few minutes; you can search and import meanwhile.`
+              ? `Checking today's clients: ${progress.checked} of ${progress.total}… The first check after 8:00 AM PH takes several minutes; you can search and import meanwhile.`
               : "Loading today's clients…"
             : data.clients.length === 0
               ? "No client with 60+ days running had appointments in the last 30 days."
