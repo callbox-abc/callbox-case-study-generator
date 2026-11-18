@@ -35,12 +35,20 @@ async function hs(method: "GET" | "POST", path: string, query: Record<string, st
 
   const url = new URL(API + path);
   for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
-  const res = await fetch(url, {
-    method,
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    cache: "no-store",
-  });
+  // HubSpot rate-limits (CRM search: about 5 requests a second). A 429 is retried after the wait it
+  // asks for (Retry-After), else a growing pause, instead of being treated as "no result".
+  let res: Response;
+  for (let attempt = 1; ; attempt++) {
+    res = await fetch(url, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      cache: "no-store",
+    });
+    if (res.status !== 429 || attempt >= 4) break;
+    const wait = Number(res.headers.get("retry-after"));
+    await new Promise((r) => setTimeout(r, Number.isFinite(wait) && wait > 0 ? Math.min(wait, 10) * 1000 : 1200 * attempt));
+  }
   if (res.status === 401) throw new HubSpotConfigError("HubSpot rejected the key. Check HUBSPOT_TOKEN in Vercel.");
   if (res.status === 403) {
     throw new HubSpotConfigError("The HubSpot key is missing a scope. It needs crm.objects.deals.read and crm.objects.companies.read.");
