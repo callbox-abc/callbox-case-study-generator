@@ -11,7 +11,7 @@
 // Narrative text is never touched; client name and country are filled only when empty.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MAX_FACTS, applyImportedFacts, mergeFacts, type RevampCaseStudy } from "@/lib/revamp";
+import { EMPTY_REVAMP, MAX_FACTS, applyImportedFacts, mergeFacts, type RevampCaseStudy } from "@/lib/revamp";
 import type { StoredImport, TopClient } from "@/lib/topClients";
 import type { RecentClient } from "@/lib/recentClients";
 import { recentKey } from "@/lib/recentKey";
@@ -236,6 +236,7 @@ export default function DataImport({
   onImported,
   onSource,
   onLoadSaved,
+  prepareSwitch,
 }: {
   up: (fn: (d: RevampCaseStudy) => void) => void;
   sheet: Pick<RevampCaseStudy, "facts" | "clientName" | "country" | "solutionLines" | "primaryContact">;
@@ -246,6 +247,9 @@ export default function DataImport({
   onSource?: (src: ImportSource) => void;
   // A client with a saved sheet: the editor restores the sheet itself (text, review state).
   onLoadSaved?: (r: RecentClient) => void;
+  // Before another client is loaded: the editor may ask to save the current one and clears the
+  // sheet ("switched"), or the user cancels (false).
+  prepareSwitch?: (next: { clientAccountId?: number | null; companyId?: string | null }) => Promise<"same" | "switched" | false>;
 }) {
   const sheetRef = useRef(sheet);
   sheetRef.current = sheet;
@@ -336,6 +340,11 @@ export default function DataImport({
     storedLabel = "saved data"
   ) => {
     if (!client && !campaign) return;
+    if (prepareSwitch) {
+      const ready = await prepareSwitch({ clientAccountId: campaign?.clientAccountId, companyId: client?.companyId });
+      if (!ready) return;
+      if (ready === "switched") sheetRef.current = EMPTY_REVAMP; // compare against the clean sheet
+    }
     setBusy("import");
     setErr(false);
     const lines: string[] = [];
@@ -451,7 +460,8 @@ export default function DataImport({
   // right away, without a search.
   // A saved sheet (someone already drafted or reviewed this client) is restored as is: no new
   // HubSpot, CallboxOne or AI calls, except the AI filling fields that are still empty.
-  const loadSaved = (r: RecentClient) => {
+  const loadSaved = async (r: RecentClient) => {
+    if (prepareSwitch && !(await prepareSwitch({ clientAccountId: r.campaign?.clientAccountId, companyId: r.company?.companyId }))) return;
     setQ(r.name);
     setClients(r.company ? [r.company] : []);
     setCampaigns(r.campaign ? [r.campaign] : []);
