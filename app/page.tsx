@@ -761,6 +761,8 @@ export default function Page() {
               </span>
             </a>
           </div>
+
+          <DevKeynote marginTop={48} />
         </div>
       </div>
     );
@@ -1115,10 +1117,10 @@ function SavePrompt({ kind, name, onChoose }: { kind: "exit" | "switch"; name: s
   );
 }
 
-// Developer keynote under the sheet: editor only. The .app-toolbar/.no-print classes keep it out of
-// the PDF, and it is not part of the sheet data, so it never reaches the CMS. Build date and commit
-// are set at build time (next.config.js).
-function DevKeynote() {
+// Developer keynote on the start screen and under the sheet. The .app-toolbar/.no-print classes keep
+// it out of the PDF, and it is not part of the sheet data, so it never reaches the CMS. Build date and
+// commit are set at build time (next.config.js).
+function DevKeynote({ marginTop = 28 }: { marginTop?: number }) {
   const date = process.env.NEXT_PUBLIC_APP_BUILD_DATE || "";
   const commit = process.env.NEXT_PUBLIC_APP_COMMIT || "local";
   return (
@@ -1126,7 +1128,7 @@ function DevKeynote() {
       className="app-toolbar no-print"
       style={{
         maxWidth: 900,
-        margin: "28px auto 0",
+        margin: `${marginTop}px auto 0`,
         padding: "16px 20px 0",
         borderTop: "1px solid " + BORDER,
         textAlign: "center",
