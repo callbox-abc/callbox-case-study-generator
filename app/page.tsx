@@ -7,7 +7,8 @@ import { copyText } from "@/lib/types";
 import { RevampCaseStudy, EMPTY_REVAMP, normalizeRevamp, revampPlainText } from "@/lib/revamp";
 import { applyDrafted, pendingFields } from "@/lib/narrative";
 import RevampSheet, { C as SHEET } from "@/components/revamp/RevampSheet";
-import DataImport from "@/components/revamp/DataImport";
+import DataImport, { type Campaign, type Client } from "@/components/revamp/DataImport";
+import TopClients from "@/components/revamp/TopClients";
 
 // Palette lifted directly from Callbox's corporate case study PDF template.
 const BG = "#101114";
@@ -62,6 +63,9 @@ export default function Page() {
   const [cmsLink, setCmsLink] = useState("");
   const cmsPageIdRef = useRef<number | null>(null);
   const [showImport, setShowImport] = useState(false);
+  // Set when a start-screen quick pick opens the import panel; the counter remounts the panel.
+  const [importInit, setImportInit] = useState<{ q: string; client: Client | null; campaign: Campaign | null; autoImport: boolean } | null>(null);
+  const [importKey, setImportKey] = useState(0);
 
   // "Draft missing text with AI": fills only EMPTY narrative fields from the sheet's own data.
   // The server drops any sentence whose numbers are not in the data (lib/narrative.ts).
@@ -501,12 +505,23 @@ export default function Page() {
               style={{ ...btnGhost, borderColor: YELLOW, color: YELLOW }}
               onClick={() => {
                 startBlank();
+                setImportInit(null);
+                setImportKey((k) => k + 1);
                 setShowImport(true);
               }}
             >
               Start from HubSpot + CallboxOne data
             </button>
           </div>
+
+          <TopClients
+            onPick={(c) => {
+              startBlank();
+              setImportInit({ q: c.name, client: c.company, campaign: c.campaign, autoImport: true });
+              setImportKey((k) => k + 1);
+              setShowImport(true);
+            }}
+          />
         </div>
       </div>
     );
@@ -609,7 +624,7 @@ export default function Page() {
           <button onClick={() => copyText(revampPlainText(cs), setCopied, "cpAll")} style={{ ...btnGhost, padding: "8px 16px", fontSize: 12 }}>
             {copied === "cpAll" ? "✓ Copied" : "Copy text"}
           </button>
-          <button onClick={() => setShowImport((v) => !v)} style={{ ...btnGhost, padding: "8px 16px", fontSize: 12 }}>
+          <button onClick={() => { setImportInit(null); setShowImport((v) => !v); }} style={{ ...btnGhost, padding: "8px 16px", fontSize: 12 }}>
             {showImport ? "Hide import" : "Import data"}
           </button>
           <button
@@ -632,7 +647,19 @@ export default function Page() {
         </div>
       </div>
 
-      {showImport && <DataImport up={up} sheet={cs} onClose={() => setShowImport(false)} onImported={requestAutoDraft} />}
+      {showImport && (
+        <DataImport
+          key={importKey}
+          up={up}
+          sheet={cs}
+          initial={importInit ?? undefined}
+          onClose={() => {
+            setShowImport(false);
+            setImportInit(null);
+          }}
+          onImported={requestAutoDraft}
+        />
+      )}
 
       {aiState !== "idle" && (
         <div

@@ -10,10 +10,10 @@
 //  - One AI draft at the end, with both sources on the sheet.
 // Narrative text is never touched; client name and country are filled only when empty.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MAX_FACTS, applyImportedFacts, mergeFacts, type RevampCaseStudy } from "@/lib/revamp";
 
-type Campaign = {
+export type Campaign = {
   clientId: number;
   clientAccountId: number;
   campaignName: string;
@@ -22,7 +22,7 @@ type Campaign = {
   start: string | null;
   timezone?: string | null;
 };
-type Client = { companyId: string; name: string; domain: string; location: string; deals: number; firstDeal: string | null };
+export type Client = { companyId: string; name: string; domain: string; location: string; deals: number; firstDeal: string | null };
 type Facts = RevampCaseStudy["facts"];
 
 const YELLOW = "#f5b914";
@@ -158,21 +158,25 @@ export default function DataImport({
   sheet,
   onClose,
   onImported,
+  initial,
 }: {
   up: (fn: (d: RevampCaseStudy) => void) => void;
   sheet: Pick<RevampCaseStudy, "facts" | "clientName" | "country" | "solutionLines" | "primaryContact">;
   onClose: () => void;
   onImported?: () => void;
+  // A quick pick from the start screen: the client and campaign are already known, so they are
+  // preselected and (with autoImport) imported right away, without a search.
+  initial?: { q: string; client: Client | null; campaign: Campaign | null; autoImport?: boolean };
 }) {
   const sheetRef = useRef(sheet);
   sheetRef.current = sheet;
-  const [q, setQ] = useState(sheet.clientName);
+  const [q, setQ] = useState(initial?.q ?? sheet.clientName);
   const [start, setStart] = useState("");
-  const [clients, setClients] = useState<Client[]>([]);
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [client, setClient] = useState<Client | null>(null);
-  const [campaign, setCampaign] = useState<Campaign | null>(null);
-  const [searched, setSearched] = useState(false);
+  const [clients, setClients] = useState<Client[]>(initial?.client ? [initial.client] : []);
+  const [campaigns, setCampaigns] = useState<Campaign[]>(initial?.campaign ? [initial.campaign] : []);
+  const [client, setClient] = useState<Client | null>(initial?.client ?? null);
+  const [campaign, setCampaign] = useState<Campaign | null>(initial?.campaign ?? null);
+  const [searched, setSearched] = useState(Boolean(initial?.client || initial?.campaign));
   const [srcErr, setSrcErr] = useState<{ hubspot?: string; callboxone?: string }>({});
   const [who, setWho] = useState<{ userName: string | null; globalClientScope: boolean } | null>(null);
   const [busy, setBusy] = useState<"" | "search" | "import">("");
@@ -309,6 +313,15 @@ export default function DataImport({
     setMsgs(lines);
     setBusy("");
   };
+
+  // Quick pick: import once on mount (the ref keeps React's dev double-mount from importing twice).
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (!initial?.autoImport || autoRan.current || !(initial.client || initial.campaign)) return;
+    autoRan.current = true;
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const what = [client && "HubSpot", campaign && "CallboxOne"].filter(Boolean).join(" + ");
 
