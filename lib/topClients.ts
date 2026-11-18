@@ -64,7 +64,15 @@ export type TopClientsSnapshot = {
   clients: TopClient[];
 };
 
-export type JobStatus = { cycle: string; status: string; phase: string; measured: number; candidates: number; updatedAt: string | null };
+export type JobStatus = {
+  cycle: string;
+  status: string;
+  phase: string;
+  measured: number;
+  candidates: number;
+  updatedAt: string | null;
+  lastError: string | null;
+};
 
 type CandidateRow = TopCampaign & { startIso: string };
 type MeasuredRow = CandidateRow & { sql: number; conv: number; top: string };
@@ -174,7 +182,15 @@ export async function readSnapshot(): Promise<{ snapshot: TopClientsSnapshot | n
   return {
     snapshot: (latest?.payload as TopClientsSnapshot) ?? null,
     job: job
-      ? { cycle, status: job.status, phase: st?.phase ?? "", measured: st?.measuredIds?.length ?? 0, candidates: st?.candidates?.length ?? 0, updatedAt: job.updated_at }
+      ? {
+          cycle,
+          status: job.status,
+          phase: st?.phase ?? "",
+          measured: st?.measuredIds?.length ?? 0,
+          candidates: st?.candidates?.length ?? 0,
+          updatedAt: job.updated_at,
+          lastError: st?.errors?.at(-1) ?? null,
+        }
       : null,
   };
 }
@@ -236,12 +252,15 @@ async function loadCandidates(call: (n: string, a: Record<string, unknown>) => P
   return [...byClient.values()].sort((a, b) => b.startIso.localeCompare(a.startIso));
 }
 
-async function stepRank(st: JobState, deadline: number) {
+async function stepRank(st: JobState, deadline: number, checkpoint: () => Promise<void>) {
   const now = new Date();
   const from = iso(new Date(now.getTime() - 30 * 864e5));
   const to = iso(now);
   await withCallboxOne(async (call) => {
-    if (!st.candidates.length) st.candidates = await loadCandidates(call);
+    if (!st.candidates.length) {
+      st.candidates = await loadCandidates(call);
+      await checkpoint();
+    }
     const done = new Set(st.measuredIds);
     const todo = st.candidates.filter((c) => !done.has(c.clientId));
     await pool(todo, RANK_CONCURRENCY, async (c) => {
@@ -257,6 +276,7 @@ async function stepRank(st: JobState, deadline: number) {
       const cv = r?.metrics?.conversions || {};
       const camp = r?.timezone?.campaign || {};
       st.measuredIds.push(c.clientId);
+      if (st.measuredIds.length % 25 === 0) checkpoint().catch(() => {});
       const sql = num(cv.sqlTotal);
       if (sql > 0) {
         st.rows.push({
@@ -394,11 +414,12 @@ async function importOne(c: TopClient, deadline: number): Promise<StoredImport> 
   return stored;
 }
 
-async function stepImport(st: JobState, deadline: number) {
+async function stepImport(st: JobState, deadline: number, checkpoint: () => Promise<void>) {
   while (st.imported < st.picks.length) {
     if (deadline - Date.now() < 100_000) return; // not enough time for a full client: next step
     st.picks[st.imported].stored = await importOne(st.picks[st.imported], deadline);
     st.imported += 1;
+    await checkpoint();
   }
   st.phase = "done";
 }
@@ -416,10 +437,12 @@ export async function runStep(cycle: string): Promise<{ done: boolean; phase: st
   await saveJob(cycle, st, "running");
 
   const deadline = Date.now() + STEP_BUDGET_MS;
+  // Saves progress mid-step so the import panel's count moves (the lease stays held).
+  const checkpoint = () => saveJob(cycle, st, "running");
   try {
-    if (st.phase === "rank") await stepRank(st, deadline);
+    if (st.phase === "rank") await stepRank(st, deadline, checkpoint);
     if (st.phase === "select") await stepSelect(st);
-    if (st.phase === "import") await stepImport(st, deadline);
+    if (st.phase === "import") await stepImport(st, deadline, checkpoint);
   } catch (e) {
     if (!(e instanceof OutOfTime)) st.errors = [...st.errors, msg(e)].slice(-10);
   }

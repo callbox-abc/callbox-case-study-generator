@@ -484,7 +484,7 @@ export default function Page() {
             <span style={{ flex: 1, minWidth: 0 }}>
               <span style={{ display: "block", fontSize: 19, fontWeight: 800 }}>Start from HubSpot + CallboxOne</span>
               <span style={{ display: "block", fontSize: 13.5, lineHeight: 1.5, marginTop: 4, opacity: 0.8 }}>
-                Pick one of today&apos;s most active clients or search any client. Numbers come from CallboxOne, client
+                Pick one of this week&apos;s most active clients or search any client. Numbers come from CallboxOne, client
                 facts from HubSpot, and the AI drafts the text.
               </span>
             </span>
