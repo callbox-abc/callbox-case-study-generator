@@ -49,6 +49,13 @@ const SYSTEM_INSTRUCTION = [
   "- channels: heading and intro about which channel carried the program and how the others compared. Takeaways: 2 short points, each with a different number.",
   "- howItRan.steps: 3-4 steps describing how the program ran, grounded in the channels, audience and the \"Lists worked\" / \"List sources\" facts when present (e.g. how many webinar audiences, built prospect lists, inbound and re-engagement lists, and how many records). Title + 1-2 sentence body. No quality claims, and never name data vendors.",
   "- rolesHeading/rolesIntro: who actually said yes, using the director-level-and-above share and the largest group.",
+  "- primaryContact: draft it only when existingText.primaryContactRole is set; otherwise return empty strings and arrays. It describes the client's buyer by role, never by a person's name.",
+  "  heading: specific, sentence case (e.g. \"The person on the other end of this program\").",
+  "  intro: 1-2 sentences: the buyer is a person with a job, a target and a reason to look for help. Only if existingText.leadSource says the buyer came inbound, say they went looking for help (never name a website or source).",
+  "  context: one sentence on what this role owns at this client, using only the facts (Company size, solution line, Industry, Market, Channels worked). Never invent a headcount, team size or reporting line.",
+  "  pressures: 3-4 items (title + 1-2 sentences) on what someone in this role at this kind of company is measured on and carrying, grounded in the input: channels worked, event registrations, the seniority of the buyers reached, the solution line, Program growth. Write them as the role's situation, never as something the client said. No numbers except from the input.",
+  "  partnerReasons: 2-3 items (title + 1 sentence) that follow from the data: capacity without hiring (Program growth seats), an audience for events (event registrations), channel-level reporting like section 02, how long they have stayed (Client since). Only reasons the input supports.",
+  "- headingBackups: for every section, a second heading with NO numbers and no share words (majority, most, bulk), in the same style. It is used only if the main heading fails the checks.",
   "- progression.body: the shape over time (launch, low point, peak, partial period) using the quarter insights. Do not explain causes.",
   "- whatChanged.outcomes: 3 outcomes, each one sentence with a different number from the input.",
   "- whereNext.recommendations: 2-3 Callbox recommendations that follow from the data (title + 1-2 sentences), e.g. logging unlogged funnel stages or tracking appointments for untracked channels.",
@@ -104,8 +111,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "The AI did not return a usable draft. Try again." }, { status: 502 });
     }
 
-    const { next, drafted, droppedSentences } = mergeNarrative(sheet, draft);
-    return NextResponse.json({ sheet: next, drafted, droppedSentences });
+    const { next, drafted, droppedSentences, droppedDetails } = mergeNarrative(sheet, draft);
+    return NextResponse.json({ sheet: next, drafted, droppedSentences, droppedDetails });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || "Drafting failed." }, { status: 502 });
   }

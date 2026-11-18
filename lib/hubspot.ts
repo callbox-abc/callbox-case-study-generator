@@ -1,10 +1,13 @@
-// Server-only client for Callbox's own HubSpot portal (client deals and company records).
-// Env: HUBSPOT_TOKEN (Service Key with crm.objects.deals.read + crm.objects.companies.read).
+// Server-only client for Callbox's own HubSpot portal (client deals, company and contact records).
+// Env: HUBSPOT_TOKEN (Service Key with crm.objects.deals.read, crm.objects.companies.read and
+// crm.objects.contacts.read).
 //
 // Read-only, and deliberately narrow:
 //  - only the request paths in ALLOWED can be called;
 //  - deal amounts are never requested, and deal names never leave the server: the browser only
-//    receives facts derived from them (client since, seat growth, services added).
+//    receives facts derived from them (client since, seat growth, services added);
+//  - contacts: only job title and original source are requested. Names, emails and phones are
+//    never requested, so they cannot leak.
 
 export class HubSpotConfigError extends Error {}
 
@@ -15,11 +18,15 @@ const ALLOWED: [string, RegExp][] = [
   ["GET", /^\/crm\/v3\/objects\/companies\/\d+$/],
   ["GET", /^\/crm\/v4\/objects\/companies\/\d+\/associations\/deals$/],
   ["POST", /^\/crm\/v3\/objects\/deals\/batch\/read$/],
+  ["POST", /^\/crm\/v4\/associations\/deals\/contacts\/batch\/read$/],
+  ["POST", /^\/crm\/v3\/objects\/contacts\/batch\/read$/],
 ];
 
 const COMPANY_PROPS = ["name", "domain", "city", "state", "country", "industry", "numberofemployees", "description"];
 // No "amount" or any other money field: the generator has no use for them.
 const DEAL_PROPS = ["dealname", "closedate", "hs_is_closed_won"];
+// No name, email or phone: the case study describes the buyer by role only.
+const CONTACT_PROPS = ["jobtitle", "hs_analytics_source"];
 
 async function hs(method: "GET" | "POST", path: string, query: Record<string, string> = {}, body?: unknown): Promise<any> {
   const token = process.env.HUBSPOT_TOKEN;
@@ -259,6 +266,72 @@ export function groundSolutionLines(lines: string[], description: string, max = 
   return tidy.join(", ");
 }
 
+/* ------------------------------ primary contact ------------------------------ */
+
+// Billing and procurement contacts sit on many deals but don't own the program.
+const NOT_BUYER = /accounts?\s*payable|billing|invoic|procurement|purchasing|\bap\b|bookkeep|accountant/i;
+
+const TITLE_ABBR: [RegExp, string][] = [
+  [/\bSr\.?(?=\s|$)/gi, "Senior"],
+  [/\bJr\.?(?=\s|$)/gi, "Junior"],
+  [/\bDir\.?(?=\s|$)/gi, "Director"],
+  [/\bMgr\.?(?=\s|$)/gi, "Manager"],
+  [/\bMktg\.?(?=\s|$)/gi, "Marketing"],
+  [/\bOps\.?(?=\s|$)/gi, "Operations"],
+  [/\bAssoc\.?(?=\s|$)/gi, "Associate"],
+  [/\bExec\.?(?=\s|$)/gi, "Executive"],
+];
+export function normalizeJobTitle(t: string): string {
+  return TITLE_ABBR.reduce((x, [re, full]) => x.replace(re, full), t.replace(/\s+/g, " ").trim());
+}
+
+// The contact's original source, as a plain phrase for the drafter. Offline or campaign-created
+// contacts (outbound, imports) make no claim at all.
+const LEAD_SOURCES: Record<string, string> = {
+  ORGANIC_SEARCH: "found Callbox through search",
+  PAID_SEARCH: "found Callbox through a search ad",
+  REFERRALS: "found Callbox through another website",
+  AI_REFERRALS: "found Callbox through an AI assistant",
+  SOCIAL_MEDIA: "found Callbox through social media",
+  PAID_SOCIAL: "found Callbox through social media",
+  EMAIL_MARKETING: "came in through a Callbox email",
+  DIRECT_TRAFFIC: "came to Callbox's website directly",
+};
+
+export type PrimaryContact = { role: string; leadSource: string; deals: number };
+
+// The buyer is the client contact on the most closed-won deals (Netrix: the marketing lead on
+// 19 of 20), skipping billing contacts and contacts without a job title.
+async function primaryContactFor(wonDealIds: string[]): Promise<PrimaryContact | null> {
+  const counts = new Map<string, number>();
+  for (let i = 0; i < wonDealIds.length; i += 100) {
+    const res = await hs("POST", "/crm/v4/associations/deals/contacts/batch/read", {}, {
+      inputs: wonDealIds.slice(i, i + 100).map((id) => ({ id })),
+    });
+    for (const r of res?.results || []) {
+      for (const to of r?.to || []) {
+        const cid = String(to?.toObjectId || "");
+        if (/^\d+$/.test(cid)) counts.set(cid, (counts.get(cid) || 0) + 1);
+      }
+    }
+  }
+  const ranked = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 20).map(([id]) => id);
+  if (!ranked.length) return null;
+  const res = await hs("POST", "/crm/v3/objects/contacts/batch/read", {}, {
+    inputs: ranked.map((id) => ({ id })),
+    properties: CONTACT_PROPS,
+  });
+  const byId = new Map<string, any>((res?.results || []).map((c: any) => [String(c?.id), c?.properties || {}]));
+  for (const id of ranked) {
+    const p = byId.get(id);
+    const title = String(p?.jobtitle || "").trim();
+    if (!title || NOT_BUYER.test(title)) continue;
+    const phrase = LEAD_SOURCES[String(p?.hs_analytics_source || "")];
+    return { role: normalizeJobTitle(title), leadSource: phrase ? `Inbound: the buyer ${phrase}.` : "", deals: counts.get(id) || 0 };
+  }
+  return null;
+}
+
 /* --------------------------------- profile --------------------------------- */
 
 export type ClientProfile = {
@@ -266,6 +339,7 @@ export type ClientProfile = {
     companyId: string; name: string; domain: string; headquarters: string; country: string; industry: string; size: string;
     solutionLines: string;
   };
+  primaryContact: PrimaryContact | null;
   relationship: Relationship | null;
   facts: { label: string; value: string }[];
   notes: string[];
@@ -282,6 +356,7 @@ export async function clientProfile(companyId: string): Promise<ClientProfile> {
   const ids: string[] = (assoc?.results || []).map((a: any) => String(a?.toObjectId)).filter((x: string) => /^\d+$/.test(x)).slice(0, 300);
 
   const deals: Deal[] = [];
+  const wonIds: string[] = [];
   for (let i = 0; i < ids.length; i += 100) {
     const batch = await hs("POST", "/crm/v3/objects/deals/batch/read", {}, {
       inputs: ids.slice(i, i + 100).map((id) => ({ id })),
@@ -290,12 +365,25 @@ export async function clientProfile(companyId: string): Promise<ClientProfile> {
     for (const d of batch?.results || []) {
       const dp = d?.properties || {};
       const closed = new Date(dp.closedate);
-      if (dp.hs_is_closed_won === "true" && Number.isFinite(closed.getTime())) deals.push({ name: String(dp.dealname || ""), closed });
+      if (dp.hs_is_closed_won === "true" && Number.isFinite(closed.getTime())) {
+        deals.push({ name: String(dp.dealname || ""), closed });
+        wonIds.push(String(d.id));
+      }
     }
   }
 
   const rel = relationshipFrom(deals);
-  const solutionLines = await solutionLinesFrom(String(p.description || "")).catch(() => "");
+  // Contact scope may be missing on an older key: the rest of the profile still imports.
+  let contactNote = "";
+  const [solutionLines, primaryContact] = await Promise.all([
+    solutionLinesFrom(String(p.description || "")).catch(() => ""),
+    primaryContactFor(wonIds).catch((e) => {
+      contactNote = e instanceof HubSpotConfigError
+        ? "The primary contact role needs the crm.objects.contacts.read scope on the HubSpot key."
+        : "The primary contact role could not be read from HubSpot.";
+      return null;
+    }),
+  ]);
   const info = {
     companyId,
     name: String(p.name || "").trim(),
@@ -333,8 +421,9 @@ export async function clientProfile(companyId: string): Promise<ClientProfile> {
     "Firmographics come from the HubSpot company record that holds this client's deals. HubSpot data can be out of date, so check them before publishing.",
   ];
   if (solutionLines) notes.push("The solution line was summarized from HubSpot's company description; check it.");
+  if (contactNote) notes.push(contactNote);
   if (!rel) notes.push("This record has no closed-won deals, so there is no client-since date or program growth.");
   else if (!rel.seats) notes.push("No seat counts were found in the deal names, so seat growth is not shown.");
 
-  return { company: info, relationship: rel, facts, notes };
+  return { company: info, primaryContact, relationship: rel, facts, notes };
 }
