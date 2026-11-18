@@ -8,6 +8,8 @@ import { RevampCaseStudy, EMPTY_REVAMP, normalizeRevamp, revampPlainText } from 
 import { applyDrafted, pendingFields } from "@/lib/narrative";
 import RevampSheet, { C as SHEET } from "@/components/revamp/RevampSheet";
 import DataImport from "@/components/revamp/DataImport";
+import { readTemplateDocx } from "@/lib/templateParse";
+import { TEMPLATE_FILE } from "@/lib/templateSchema";
 
 // Palette lifted directly from Callbox's corporate case study PDF template.
 const BG = "#101114";
@@ -40,7 +42,8 @@ export default function Page() {
       return next;
     });
   const [mapError, setMapError] = useState("");
-  const [pastedText, setPastedText] = useState("");
+  // Neutral notice on the editor (e.g. "read 19 fields from the template").
+  const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -221,14 +224,28 @@ export default function Page() {
     if (!file) return;
     setMapError("");
     try {
+      // The downloadable template is read field by field, word for word, with no AI mapping.
+      // The import panel opens next; the AI drafts empty text after the numbers are imported.
+      const tpl = await readTemplateDocx(file);
+      if (tpl) {
+        startBlank();
+        setCs(tpl.sheet);
+        setNotice(
+          tpl.filled
+            ? `Read ${tpl.filled} filled field${tpl.filled === 1 ? "" : "s"} from the template, word for word. Import HubSpot + CallboxOne data below for the numbers; the AI then drafts what's still empty.`
+            : "The template was empty. Import HubSpot + CallboxOne data below, or fill in the sheet here."
+        );
+        setShowImport(true);
+        return;
+      }
       const text = await extractFromFile(file);
       if (!text.trim()) {
-        setMapError("Couldn't find readable text in that file. Try pasting the content instead.");
+        setMapError("Couldn't find readable text in that file. Try the Case Study Template below instead.");
         return;
       }
       await runMapping(text);
     } catch (e: any) {
-      setMapError(e?.message || "Could not read that file. You can paste the content manually below instead.");
+      setMapError(e?.message || "Could not read that file. You can download the Case Study Template below and fill it in instead.");
     }
   };
 
@@ -241,6 +258,7 @@ export default function Page() {
   };
 
   const startBlank = () => {
+    setNotice("");
     resetAi();
     setCs(EMPTY_REVAMP);
     setSourceText("");
@@ -476,21 +494,19 @@ export default function Page() {
 
           <div style={{ marginBottom: 18 }}>
             <label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 6, color: MUTED }}>
-              Paste content directly
+              Download Case Study Template
             </label>
-            <textarea
-              value={pastedText}
-              onChange={(e) => setPastedText(e.target.value)}
-              placeholder="Paste raw case study text here if you'd rather not upload a file…"
-              style={{ ...inpS, minHeight: 120, resize: "vertical", lineHeight: 1.6, marginBottom: 10 }}
-            />
-            <button
-              style={{ ...btnPrimary, opacity: pastedText.trim() ? 1 : 0.5, width: "100%" }}
-              disabled={!pastedText.trim()}
-              onClick={() => runMapping(pastedText)}
+            <p style={{ fontSize: 13, color: MUTED, margin: "0 0 10px", lineHeight: 1.6 }}>
+              A Word file with every field labeled, section by section. Fill in what you know, then upload it above:
+              each box goes straight into its field, word for word, so nothing gets lost or reworded.
+            </p>
+            <a
+              href={`/${TEMPLATE_FILE}`}
+              download
+              style={{ ...btnPrimary, display: "block", width: "100%", textAlign: "center", textDecoration: "none", boxSizing: "border-box" }}
             >
-              Map pasted content
-            </button>
+              Download Case Study Template (.docx)
+            </a>
           </div>
 
           <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
@@ -694,6 +710,25 @@ export default function Page() {
               Open in WordPress →
             </a>
           )}
+        </div>
+      )}
+
+      {notice && (
+        <div
+          className="app-toolbar"
+          role="status"
+          style={{
+            maxWidth: 900,
+            margin: "12px auto 0",
+            padding: "10px 16px",
+            borderRadius: 8,
+            background: "rgba(245,185,20,0.08)",
+            border: "1px solid rgba(245,185,20,0.35)",
+            color: TEXT,
+            fontSize: 13,
+          }}
+        >
+          {notice}
         </div>
       )}
 
