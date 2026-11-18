@@ -23,3 +23,6 @@ create index if not exists app_cache_updated_at on public.app_cache (updated_at 
 
 alter table public.app_cache enable row level security;
 -- Deliberately no policies: the anon and authenticated roles can't read or write this table.
+--
+-- Free plan: Supabase pauses a project after a week without activity. A daily Vercel Cron
+-- (/api/cron/keepalive, 12:00 PH) reads one row so the Monday job never meets a paused project.
