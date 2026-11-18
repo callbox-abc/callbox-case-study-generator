@@ -843,7 +843,41 @@ export default function Page() {
             <RevampSheet r={cs} up={up} pending={pending} />
             <Footer />
           </div>
+          {/* Inside the sheet's column (.app-shell is a flex row), outside .pdf-page. */}
+          <DevKeynote />
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Developer keynote under the sheet: editor only. The .app-toolbar/.no-print classes keep it out of
+// the PDF, and it is not part of the sheet data, so it never reaches the CMS. Build date and commit
+// are set at build time (next.config.js).
+function DevKeynote() {
+  const date = process.env.NEXT_PUBLIC_APP_BUILD_DATE || "";
+  const commit = process.env.NEXT_PUBLIC_APP_COMMIT || "local";
+  return (
+    <div
+      className="app-toolbar no-print"
+      style={{
+        maxWidth: 900,
+        margin: "28px auto 0",
+        padding: "16px 20px 0",
+        borderTop: "1px solid " + BORDER,
+        textAlign: "center",
+        fontSize: 12,
+        lineHeight: 1.7,
+        color: MUTED,
+      }}
+    >
+      <div>
+        <b style={{ color: MUTED_LIGHT }}>Case Study Generator</b> · built and maintained by{" "}
+        <b style={{ color: MUTED_LIGHT }}>James Daniel Esmatao</b>, Web Developer &amp; Technical SEO Specialist
+      </div>
+      <div>Found a problem or have an idea? Message James.</div>
+      <div>
+        Version {date ? date.replace(/-/g, ".") : "dev"} ({commit})
       </div>
     </div>
   );
