@@ -1,22 +1,29 @@
-// "Today's most active clients": the 5 CallboxOne clients with the most sales-qualified
-// appointments in the last 30 days, among campaigns running 60 days to 24 months.
-// The list resets at 08:00 Philippine time (UTC+8), which is 00:00 UTC, so a "cycle" is simply
-// the UTC date.
+// "Most active clients": a WEEKLY snapshot of the 5 CallboxOne clients with the most
+// sales-qualified appointments in the last 30 days (campaigns running 60 days to 24 months),
+// with each client's full import data. Built once a week by a Vercel Cron job, Mondays at
+// 08:00 PH (Monday 00:00 UTC), and stored in Supabase (app_cache). The import panel only
+// reads the snapshot: opening it or clicking a card never calls CallboxOne or HubSpot.
 //
-// Ranking every candidate takes one get_hubspot_report call per client (~14s each in practice,
-// ~370 candidates), far more than one Vercel function can do in 60s. So the work is split:
-//   plan   -> the candidate list (one list_team_leaders call), cached per cycle
-//   batch  -> one slice of candidates measured, cached per cycle and slice once complete
-//   final  -> the collected results ranked and named via HubSpot, cached per cycle once complete
-// The browser drives the batches (like the CallboxOne import) and sends the results to final.
-// The first visitor after 08:00 PH waits a few minutes; everyone after that reads the cache.
-//
-// Every request must finish inside Vercel's 60s: a batch stops at a hard deadline, abandons calls
-// still running, and returns what it has (not cached, so it can be retried).
+// The job runs as a chain of steps, each well inside the function limit, saving progress in the
+// job row between steps:
+//   rank    measure every candidate's appointments in the last 30 days (get_hubspot_report)
+//   select  pick the top 5, named via HubSpot
+//   import  pull each pick's full import data: HubSpot profile + CallboxOne quarters, lists, funnel
+//   done    publish the snapshot
+// The job row (one per week) is also the lock: a second start in the same week does nothing.
 
-import { unstable_cache } from "next/cache";
-import { startFromCampaignCode, withCallboxOne } from "@/lib/callboxone";
-import { searchClients, type ClientCandidate } from "@/lib/hubspot";
+import {
+  buildPatch,
+  listSummary,
+  quarterWindows,
+  startFromCampaignCode,
+  totalsFromReport,
+  withCallboxOne,
+  type ImportResult,
+  type Totals,
+} from "@/lib/callboxone";
+import { clientProfile, searchClients, type ClientCandidate, type ClientProfile } from "@/lib/hubspot";
+import { createServiceClient } from "@/lib/supabase/server";
 
 export type TopCampaign = {
   clientId: number;
@@ -28,6 +35,13 @@ export type TopCampaign = {
   timezone: string | null;
 };
 
+// What the snapshot keeps per client: exactly what the live import would have fetched.
+export type StoredImport = {
+  hubspot: ClientProfile | null;
+  callboxone: (ImportResult & { startSource: "code" | "hubspot" }) | null;
+  error?: string;
+};
+
 export type TopClient = {
   name: string; // HubSpot company name, else the CallboxOne client name
   domain: string; // for the logo; "" when HubSpot has no match
@@ -35,177 +49,234 @@ export type TopClient = {
   sql30: number;
   conversions30: number;
   topChannel: string; // "Voice" | "LinkedIn" | ""
-  campaign: TopCampaign; // ready for the import panel
-  company: ClientCandidate | null; // ready for the import panel
+  campaign: TopCampaign;
+  company: ClientCandidate | null;
+  stored?: StoredImport;
 };
 
-export type TopClientsPlan = { cycle: string; nextRefresh: string; candidates: number; batches: number };
-export type TopClientsBatch = { index: number; size: number; checked: number; partial: boolean; rows: MeasuredRow[] };
-export type TopClientsPayload = {
-  cycle: string;
+export type TopClientsSnapshot = {
+  cycle: string; // the Monday (UTC date) the snapshot belongs to
   refreshedAt: string;
   nextRefresh: string;
   candidates: number;
   measured: number;
-  complete: boolean;
-  // Ranked clients left out because CallboxOne only has an offer label for them and HubSpot
-  // has no matching company, so there is no real name to show.
   skippedUnnamed: number;
   clients: TopClient[];
 };
 
+export type JobStatus = { cycle: string; status: string; phase: string; measured: number; candidates: number; updatedAt: string | null };
+
 type CandidateRow = TopCampaign & { startIso: string };
-export type MeasuredRow = CandidateRow & { sql: number; conv: number; top: string };
+type MeasuredRow = CandidateRow & { sql: number; conv: number; top: string };
+type JobState = {
+  phase: "rank" | "select" | "import" | "done";
+  candidates: CandidateRow[];
+  measuredIds: number[];
+  rows: MeasuredRow[]; // only clients with appointments
+  picks: TopClient[];
+  imported: number;
+  skippedUnnamed: number;
+  steps: number;
+  leaseUntil: number; // a step in progress; another step won't start before this
+  errors: string[];
+};
 
 const MIN_DAYS = 60;
 const MAX_DAYS = 24 * 30.44; // older "active" campaigns are almost always dormant
 const TEST = /\btest\b|\[test\]|programmer test|sandbox|dummy/i;
 // CallboxOne often stores the offer as the client name ("1Q26 Callbox - AI Readiness Accelerator").
 const OFFER_LABEL = /\bcallbox\b|^\s*\d?\s*[qh]\d\s?\d{2}\b/i;
-export const BATCH_SIZE = 12;
-const BATCH_DEADLINE_MS = 42_000; // after this, calls still running are abandoned
-const CONCURRENCY = 6;
 const TOP = 5;
+const RANK_CONCURRENCY = 6; // CallboxOne slows down under load
+const WINDOW_CONCURRENCY = 3;
+const MAX_WINDOWS = 12;
+export const STEP_BUDGET_MS = 230_000; // the cron route allows 300s; calls still running are abandoned
+const MAX_STEPS = 30;
+
+const TABLE = "app_cache";
+const LATEST = "top-clients:latest";
+const jobKey = (cycle: string) => `top-clients:job:${cycle}`;
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+const msg = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 300);
 
-export const currentCycle = (now = new Date()) => iso(now);
-export const nextReset = (now = new Date()) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
-
-// Every entry expires at the next reset; a new cycle is a new key anyway.
-const cached = <T>(fn: () => Promise<T>, key: string[]) => {
-  const secondsLeft = Math.max(60, Math.ceil((nextReset().getTime() - Date.now()) / 1000));
-  return unstable_cache(fn, ["top-clients", currentCycle(), ...key], { revalidate: secondsLeft, tags: ["top-clients"] })();
+// Weekly cycle: Monday 00:00 UTC = Monday 08:00 PH. The cycle is that Monday's UTC date.
+export function currentCycle(now = new Date()): string {
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); // back to Monday
+  return iso(d);
+}
+export const nextRefresh = (now = new Date()) => {
+  const monday = new Date(`${currentCycle(now)}T00:00:00Z`);
+  monday.setUTCDate(monday.getUTCDate() + 7);
+  return monday;
 };
 
-/* ---------------------------------- plan ---------------------------------- */
+/* --------------------------------- storage --------------------------------- */
 
-// One campaign per client: the newest one that is 60 days to 24 months old. Newest first.
-async function loadCandidates(): Promise<CandidateRow[]> {
-  const now = new Date();
-  return withCallboxOne(async (call) => {
-    const leaders = await call("list_team_leaders", { limit: 500 });
-    const byClient = new Map<number, CandidateRow>();
-    for (const tl of leaders?.teamLeaders || []) {
-      for (const team of tl?.teams || []) {
-        for (const c of team?.campaigns || []) {
-          const clientId = Number(c?.clientId);
-          const code = String(c?.campaignName || "");
-          const name = String(c?.clientName || "");
-          if (!clientId || TEST.test(name) || TEST.test(code)) continue;
-          const startDate = startFromCampaignCode(code);
-          if (!startDate) continue;
-          const days = (now.getTime() - startDate.getTime()) / 864e5;
-          if (days < MIN_DAYS || days > MAX_DAYS) continue;
-          const prev = byClient.get(clientId);
-          if (prev && prev.startIso >= iso(startDate)) continue;
-          byClient.set(clientId, {
-            clientId,
-            clientAccountId: Number(c?.clientAccountId) || 0,
-            campaignName: code,
-            clientName: name,
-            teamLeader: tl?.name ? String(tl.name) : null,
-            start: iso(startDate).slice(0, 7),
-            timezone: null,
-            startIso: iso(startDate),
-          });
-        }
-      }
-    }
-    return [...byClient.values()].sort((a, b) => b.startIso.localeCompare(a.startIso));
-  });
+function db() {
+  const c = createServiceClient();
+  if (!c) throw new Error("Supabase is not configured: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel.");
+  return c;
 }
 
-const getCandidates = () => cached(loadCandidates, ["candidates"]);
+const emptyJob = (): JobState => ({
+  phase: "rank",
+  candidates: [],
+  measuredIds: [],
+  rows: [],
+  picks: [],
+  imported: 0,
+  skippedUnnamed: 0,
+  steps: 0,
+  leaseUntil: 0,
+  errors: [],
+});
 
-export async function getPlan(): Promise<TopClientsPlan> {
-  const candidates = await getCandidates();
+// Starts this week's job. False when it already started (the once-a-week lock).
+export async function claimJob(cycle: string): Promise<boolean> {
+  const { error } = await db().from(TABLE).insert({ key: jobKey(cycle), cycle, status: "running", payload: emptyJob() });
+  if (!error) return true;
+  if (error.code === "23505") return false; // duplicate key: already started this week
+  throw new Error(`Supabase: ${error.message}`);
+}
+
+async function loadJob(cycle: string): Promise<{ status: string; state: JobState; updatedAt: string } | null> {
+  const { data, error } = await db().from(TABLE).select("status, payload, updated_at").eq("key", jobKey(cycle)).maybeSingle();
+  if (error) throw new Error(`Supabase: ${error.message}`);
+  return data ? { status: data.status, state: { ...emptyJob(), ...(data.payload as JobState) }, updatedAt: data.updated_at } : null;
+}
+
+async function saveJob(cycle: string, state: JobState, status: string) {
+  const { error } = await db()
+    .from(TABLE)
+    .update({ status, payload: state, updated_at: new Date().toISOString() })
+    .eq("key", jobKey(cycle));
+  if (error) throw new Error(`Supabase: ${error.message}`);
+}
+
+async function publish(snapshot: TopClientsSnapshot) {
+  const { error } = await db()
+    .from(TABLE)
+    .upsert({ key: LATEST, cycle: snapshot.cycle, status: "ready", payload: snapshot, updated_at: new Date().toISOString() });
+  if (error) throw new Error(`Supabase: ${error.message}`);
+}
+
+// What the import panel reads: the last complete snapshot, plus how this week's job is doing.
+export async function readSnapshot(): Promise<{ snapshot: TopClientsSnapshot | null; job: JobStatus | null }> {
+  const cycle = currentCycle();
+  const { data, error } = await db().from(TABLE).select("key, status, payload, updated_at").in("key", [LATEST, jobKey(cycle)]);
+  if (error) throw new Error(`Supabase: ${error.message}`);
+  const latest = data?.find((r) => r.key === LATEST);
+  const job = data?.find((r) => r.key === jobKey(cycle));
+  const st = job?.payload as JobState | undefined;
   return {
-    cycle: currentCycle(),
-    nextRefresh: nextReset().toISOString(),
-    candidates: candidates.length,
-    batches: Math.ceil(candidates.length / BATCH_SIZE),
+    snapshot: (latest?.payload as TopClientsSnapshot) ?? null,
+    job: job
+      ? { cycle, status: job.status, phase: st?.phase ?? "", measured: st?.measuredIds?.length ?? 0, candidates: st?.candidates?.length ?? 0, updatedAt: job.updated_at }
+      : null,
   };
 }
 
-/* ---------------------------------- batch ---------------------------------- */
+/* ---------------------------------- helpers ---------------------------------- */
 
-class PartialBatch extends Error {
-  batch: TopClientsBatch;
-  constructor(batch: TopClientsBatch) {
-    super("partial batch");
-    this.batch = batch;
-  }
+const TIMEOUT = Symbol("timeout");
+// Resolves to TIMEOUT at the deadline instead of waiting for a slow call.
+function beforeDeadline<T>(p: Promise<T>, deadline: number): Promise<T | typeof TIMEOUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stop = new Promise<typeof TIMEOUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMEOUT), Math.max(0, deadline - Date.now()));
+  });
+  return Promise.race([p, stop]).finally(() => clearTimeout(timer));
 }
 
-// Measures one slice: sales-qualified appointments in the last 30 days, per client. Stops at a hard
-// deadline so the request always answers in time; a partial slice throws (so it isn't cached).
-async function measureBatch(index: number): Promise<TopClientsBatch> {
-  const deadline = Date.now() + BATCH_DEADLINE_MS;
-  const all = await getCandidates();
-  const slice = all.slice(index * BATCH_SIZE, (index + 1) * BATCH_SIZE);
+async function pool<T>(items: T[], size: number, fn: (x: T) => Promise<void>) {
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: size }, async () => {
+      while (next < items.length) await fn(items[next++]);
+    })
+  );
+}
+
+/* ----------------------------------- rank ----------------------------------- */
+
+// One campaign per client: the newest one that is 60 days to 24 months old.
+async function loadCandidates(call: (n: string, a: Record<string, unknown>) => Promise<any>): Promise<CandidateRow[]> {
+  const now = new Date();
+  const leaders = await call("list_team_leaders", { limit: 500 });
+  const byClient = new Map<number, CandidateRow>();
+  for (const tl of leaders?.teamLeaders || []) {
+    for (const team of tl?.teams || []) {
+      for (const c of team?.campaigns || []) {
+        const clientId = Number(c?.clientId);
+        const code = String(c?.campaignName || "");
+        const name = String(c?.clientName || "");
+        if (!clientId || TEST.test(name) || TEST.test(code)) continue;
+        const startDate = startFromCampaignCode(code);
+        if (!startDate) continue;
+        const days = (now.getTime() - startDate.getTime()) / 864e5;
+        if (days < MIN_DAYS || days > MAX_DAYS) continue;
+        const prev = byClient.get(clientId);
+        if (prev && prev.startIso >= iso(startDate)) continue;
+        byClient.set(clientId, {
+          clientId,
+          clientAccountId: Number(c?.clientAccountId) || 0,
+          campaignName: code,
+          clientName: name,
+          teamLeader: tl?.name ? String(tl.name) : null,
+          start: iso(startDate).slice(0, 7),
+          timezone: null,
+          startIso: iso(startDate),
+        });
+      }
+    }
+  }
+  return [...byClient.values()].sort((a, b) => b.startIso.localeCompare(a.startIso));
+}
+
+async function stepRank(st: JobState, deadline: number) {
   const now = new Date();
   const from = iso(new Date(now.getTime() - 30 * 864e5));
   const to = iso(now);
-  const rows: MeasuredRow[] = [];
-  let checked = 0;
-  const TIMEOUT = Symbol("timeout");
-  const beforeDeadline = <T>(p: Promise<T>): Promise<T | typeof TIMEOUT> => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const stop = new Promise<typeof TIMEOUT>((resolve) => {
-      timer = setTimeout(() => resolve(TIMEOUT), Math.max(0, deadline - Date.now()));
-    });
-    return Promise.race([p, stop]).finally(() => clearTimeout(timer));
-  };
-
   await withCallboxOne(async (call) => {
-    let next = 0;
-    const worker = async () => {
-      while (next < slice.length && Date.now() < deadline) {
-        const c = slice[next++];
-        let r: any;
-        try {
-          r = await beforeDeadline(call("get_hubspot_report", { clientId: c.clientId, from, to }));
-        } catch {
-          checked += 1; // a client whose report fails counts as checked, with no result
-          continue;
-        }
-        if (r === TIMEOUT) return;
-        const cv = r?.metrics?.conversions || {};
-        const camp = r?.timezone?.campaign || {};
-        rows.push({
+    if (!st.candidates.length) st.candidates = await loadCandidates(call);
+    const done = new Set(st.measuredIds);
+    const todo = st.candidates.filter((c) => !done.has(c.clientId));
+    await pool(todo, RANK_CONCURRENCY, async (c) => {
+      if (Date.now() >= deadline) return;
+      let r: any;
+      try {
+        r = await beforeDeadline(call("get_hubspot_report", { clientId: c.clientId, from, to }), deadline);
+      } catch {
+        st.measuredIds.push(c.clientId); // a client whose report fails counts as checked, with no result
+        return;
+      }
+      if (r === TIMEOUT) return; // measured again in the next step
+      const cv = r?.metrics?.conversions || {};
+      const camp = r?.timezone?.campaign || {};
+      st.measuredIds.push(c.clientId);
+      const sql = num(cv.sqlTotal);
+      if (sql > 0) {
+        st.rows.push({
           ...c,
           // The report names the client's campaign it measured: prefer it for the import.
           clientAccountId: Number(camp.clientAccountId) || c.clientAccountId,
           campaignName: camp.campaignName ? String(camp.campaignName) : c.campaignName,
           teamLeader: camp.teamLeader ? String(camp.teamLeader) : c.teamLeader,
           timezone: camp.timezone ? String(camp.timezone) : r?.timezone?.timezone ? String(r.timezone.timezone) : null,
-          sql: num(cv.sqlTotal),
+          sql,
           conv: num(cv.total),
           top: num(cv.sqlLinkedIn) > num(cv.sqlCalling) ? "LinkedIn" : num(cv.sqlCalling) > 0 ? "Voice" : "",
         });
-        checked += 1;
       }
-    };
-    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    });
   });
-  // Only clients with appointments matter for the ranking; the rest stay out of the payload.
-  const batch = { index, size: slice.length, checked, partial: checked < slice.length, rows: rows.filter((x) => x.sql > 0) };
-  if (batch.partial) throw new PartialBatch(batch);
-  return batch;
+  if (st.candidates.length && st.measuredIds.length >= st.candidates.length) st.phase = "select";
 }
 
-export async function getBatch(index: number): Promise<TopClientsBatch> {
-  try {
-    return await cached(() => measureBatch(index), ["batch", String(index)]);
-  } catch (e) {
-    if (e instanceof PartialBatch) return e.batch;
-    throw e;
-  }
-}
-
-/* ---------------------------------- final ---------------------------------- */
+/* ---------------------------------- select ---------------------------------- */
 
 // The HubSpot company for a CallboxOne client: by client name, else by the campaign code letters
 // (NETRIX25071 -> "NETRIX"), skipping offer labels that are not company names.
@@ -223,55 +294,27 @@ async function companyFor(c: CandidateRow): Promise<ClientCandidate | null> {
   return null;
 }
 
-// Rows arrive from the browser (collected from the batch responses), so they are re-checked.
-export function sanitizeRows(v: unknown): MeasuredRow[] {
-  const str = (x: unknown, max: number) => (typeof x === "string" ? x.slice(0, max) : "");
-  const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) && x >= 0 ? x : 0);
-  return (Array.isArray(v) ? v : []).slice(0, 600).flatMap((r: any) => {
-    const clientId = n(r?.clientId);
-    const startIso = typeof r?.startIso === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.startIso) ? r.startIso : "";
-    if (!clientId || !startIso) return [];
-    const row: MeasuredRow = {
-      clientId,
-      clientAccountId: n(r?.clientAccountId),
-      campaignName: str(r?.campaignName, 80),
-      clientName: str(r?.clientName, 200),
-      teamLeader: str(r?.teamLeader, 120) || null,
-      start: typeof r?.start === "string" && /^\d{4}-\d{2}$/.test(r.start) ? r.start : null,
-      timezone: str(r?.timezone, 60) || null,
-      startIso,
-      sql: n(r?.sql),
-      conv: n(r?.conv),
-      top: r?.top === "Voice" || r?.top === "LinkedIn" ? r.top : "",
-    };
-    return [row];
-  });
-}
-
-async function buildFinal(rows: MeasuredRow[], measured: number, complete: boolean): Promise<TopClientsPayload> {
+async function stepSelect(st: JobState) {
   const now = new Date();
-  const plan = await getPlan();
-  const ranked = rows.filter((r) => r.sql > 0).sort((a, b) => b.sql - a.sql || b.conv - a.conv);
-
-  // Company name and domain from HubSpot; the same company twice (e.g. several Netrix campaigns
-  // under different client ids) is listed once.
-  const pool = ranked.slice(0, TOP * 3);
-  const companies = await Promise.all(pool.map((m) => companyFor(m).catch(() => null)));
-  const clients: TopClient[] = [];
+  const ranked = [...st.rows].sort((a, b) => b.sql - a.sql || b.conv - a.conv);
+  const shortlist = ranked.slice(0, TOP * 3);
+  const companies = await Promise.all(shortlist.map((m) => companyFor(m).catch(() => null)));
+  const picks: TopClient[] = [];
   const seen = new Set<string>();
-  let skippedUnnamed = 0;
-  pool.forEach((m, i) => {
-    if (clients.length >= TOP) return;
+  st.skippedUnnamed = 0;
+  shortlist.forEach((m, i) => {
+    if (picks.length >= TOP) return;
     const company = companies[i];
     if (!company && OFFER_LABEL.test(m.clientName)) {
-      skippedUnnamed += 1;
+      st.skippedUnnamed += 1;
       return;
     }
+    // The same company twice (e.g. several Netrix campaigns under different client ids) is listed once.
     const key = company?.companyId || (/^[A-Za-z]+/.exec(m.campaignName)?.[0] ?? String(m.clientId)).toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
     const { startIso, sql, conv, top, ...campaign } = m;
-    clients.push({
+    picks.push({
       name: company?.name || m.clientName,
       domain: company?.domain || "",
       months: Math.max(1, Math.round((now.getTime() - Date.parse(startIso)) / (30.44 * 864e5))),
@@ -282,21 +325,131 @@ async function buildFinal(rows: MeasuredRow[], measured: number, complete: boole
       company,
     });
   });
-
-  return {
-    cycle: plan.cycle,
-    refreshedAt: now.toISOString(),
-    nextRefresh: plan.nextRefresh,
-    candidates: plan.candidates,
-    measured: Math.min(measured, plan.candidates),
-    complete,
-    skippedUnnamed,
-    clients,
-  };
+  st.picks = picks;
+  st.imported = 0;
+  st.phase = "import";
 }
 
-// A complete list is cached for the day (the first complete one wins; later visitors' rows come
-// from the same cached batches). An incomplete list is computed but not cached.
-export function getFinal(rows: MeasuredRow[], measured: number, complete: boolean): Promise<TopClientsPayload> {
-  return complete ? cached(() => buildFinal(rows, measured, true), ["final"]) : buildFinal(rows, measured, false);
+/* ---------------------------------- import ---------------------------------- */
+
+class OutOfTime extends Error {}
+
+// The same data the import panel fetches live, pulled once for the snapshot.
+async function importOne(c: TopClient, deadline: number): Promise<StoredImport> {
+  const stored: StoredImport = { hubspot: null, callboxone: null };
+  if (c.company) {
+    stored.hubspot = await clientProfile(c.company.companyId).catch((e) => {
+      stored.error = `HubSpot: ${msg(e)}`;
+      return null;
+    });
+  }
+  const fromCode = startFromCampaignCode(c.campaign.campaignName);
+  const firstWon = stored.hubspot?.relationship?.firstWon;
+  const start = fromCode ?? (firstWon ? new Date(`${firstWon}-01T00:00:00Z`) : null);
+  if (!start) {
+    stored.error = `No start month for ${c.campaign.campaignName}.`;
+    return stored;
+  }
+  const windows = quarterWindows(start).slice(-MAX_WINDOWS);
+  try {
+    const built = await withCallboxOne(async (call) => {
+      const perWindow: Totals[] = new Array(windows.length);
+      let timedOut = false;
+      await pool(
+        windows.map((w, i) => ({ w, i })),
+        WINDOW_CONCURRENCY,
+        async ({ w, i }) => {
+          const r = await beforeDeadline(
+            call("get_report_stats", { clientId: c.campaign.clientId, clientAccountId: c.campaign.clientAccountId, from: w.from, to: w.to }),
+            deadline
+          );
+          if (r === TIMEOUT) timedOut = true;
+          else perWindow[i] = totalsFromReport(r, c.campaign.clientAccountId);
+        }
+      );
+      if (timedOut) throw new OutOfTime();
+      const lists = await call("list_client_lists", { clientId: c.campaign.clientId })
+        .then((res) => listSummary(res, c.campaign.clientAccountId))
+        .catch(() => null);
+      const progression = await call("get_opportunity_progression", {
+        clientId: c.campaign.clientId,
+        from: windows[0].from,
+        to: windows[windows.length - 1].to,
+      })
+        .then((res) => ({ counts: res?.counts || {} }))
+        .catch(() => ({ counts: {} }));
+      return buildPatch(
+        { clientId: c.campaign.clientId, clientAccountId: c.campaign.clientAccountId, campaignName: c.campaign.campaignName, clientName: c.campaign.clientName },
+        windows,
+        perWindow,
+        progression,
+        { lists, timezone: c.campaign.timezone ?? "" }
+      );
+    });
+    stored.callboxone = { ...built, startSource: fromCode ? "code" : "hubspot" };
+  } catch (e) {
+    if (e instanceof OutOfTime) throw e; // the step ends; this client is imported again next step
+    stored.error = [stored.error, `CallboxOne: ${msg(e)}`].filter(Boolean).join(" ");
+  }
+  return stored;
+}
+
+async function stepImport(st: JobState, deadline: number) {
+  while (st.imported < st.picks.length) {
+    if (deadline - Date.now() < 100_000) return; // not enough time for a full client: next step
+    st.picks[st.imported].stored = await importOne(st.picks[st.imported], deadline);
+    st.imported += 1;
+  }
+  st.phase = "done";
+}
+
+/* ----------------------------------- steps ----------------------------------- */
+
+// Runs one step of this week's job. Returns whether the job is finished (or can't continue).
+export async function runStep(cycle: string): Promise<{ done: boolean; phase: string; note?: string }> {
+  const job = await loadJob(cycle);
+  if (!job) return { done: true, phase: "none", note: "No job for this week." };
+  if (job.status !== "running") return { done: true, phase: job.status };
+  const st = job.state;
+  if (st.leaseUntil > Date.now()) return { done: true, phase: st.phase, note: "Another step is running." };
+  st.leaseUntil = Date.now() + STEP_BUDGET_MS + 60_000;
+  await saveJob(cycle, st, "running");
+
+  const deadline = Date.now() + STEP_BUDGET_MS;
+  try {
+    if (st.phase === "rank") await stepRank(st, deadline);
+    if (st.phase === "select") await stepSelect(st);
+    if (st.phase === "import") await stepImport(st, deadline);
+  } catch (e) {
+    if (!(e instanceof OutOfTime)) st.errors = [...st.errors, msg(e)].slice(-10);
+  }
+  st.steps += 1;
+  st.leaseUntil = 0;
+
+  if (st.phase === "done") {
+    await publish({
+      cycle,
+      refreshedAt: new Date().toISOString(),
+      nextRefresh: nextRefresh().toISOString(),
+      candidates: st.candidates.length,
+      measured: st.measuredIds.length,
+      skippedUnnamed: st.skippedUnnamed,
+      clients: st.picks,
+    });
+    await saveJob(cycle, st, "done");
+    return { done: true, phase: "done" };
+  }
+  if (st.steps >= MAX_STEPS) {
+    await saveJob(cycle, st, "failed");
+    return { done: true, phase: "failed", note: st.errors.at(-1) };
+  }
+  await saveJob(cycle, st, "running");
+  return { done: false, phase: st.phase };
+}
+
+// A job whose chain broke (no step for 10 minutes) can be picked up again by the resume cron.
+export async function isStalled(cycle: string): Promise<boolean> {
+  const job = await loadJob(cycle);
+  if (!job || job.status !== "running") return false;
+  return job.state.leaseUntil < Date.now() && Date.now() - Date.parse(job.updatedAt) > 10 * 60_000;
 }

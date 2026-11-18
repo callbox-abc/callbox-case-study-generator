@@ -64,6 +64,8 @@ export default function Page() {
   const [cmsMsg, setCmsMsg] = useState("");
   const [cmsLink, setCmsLink] = useState("");
   const cmsPageIdRef = useRef<number | null>(null);
+  // The saved import (shared "Recently imported clients") the sheet's data came from, if any.
+  const importKeyRef = useRef<string | null>(null);
   const [showImport, setShowImport] = useState(false);
 
   // "Draft missing text with AI": fills only EMPTY narrative fields from the sheet's own data.
@@ -258,6 +260,7 @@ export default function Page() {
   };
 
   const startBlank = () => {
+    importKeyRef.current = null;
     setNotice("");
     resetAi();
     setCs(EMPTY_REVAMP);
@@ -351,6 +354,14 @@ export default function Page() {
       if (!draftRes.ok) throw new Error(draftJson.error || "Could not create the draft.");
 
       cmsPageIdRef.current = draftJson.id;
+      // Show the draft next to the client in "Recently imported clients", so nobody makes a second one.
+      if (importKeyRef.current) {
+        fetch("/api/recent-clients?step=draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: importKeyRef.current, id: draftJson.id, editLink: draftJson.editLink }),
+        }).catch(() => {});
+      }
       setCmsLink(draftJson.editLink);
       const missing: string[] = draftJson.missingAcfKeys || [];
       const parent = draftJson.parent || {};
@@ -687,7 +698,15 @@ export default function Page() {
         </div>
       </div>
 
-      {showImport && <DataImport up={up} sheet={cs} onClose={() => setShowImport(false)} onImported={requestAutoDraft} />}
+      {showImport && (
+        <DataImport
+          up={up}
+          sheet={cs}
+          onClose={() => setShowImport(false)}
+          onImported={requestAutoDraft}
+          onImportKey={(k) => (importKeyRef.current = k)}
+        />
+      )}
 
       {aiState !== "idle" && (
         <div

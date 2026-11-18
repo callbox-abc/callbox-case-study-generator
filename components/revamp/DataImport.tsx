@@ -10,10 +10,12 @@
 //  - One AI draft at the end, with both sources on the sheet.
 // Narrative text is never touched; client name and country are filled only when empty.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MAX_FACTS, applyImportedFacts, mergeFacts, type RevampCaseStudy } from "@/lib/revamp";
-import type { TopClient } from "@/lib/topClients";
-import TopClients from "@/components/revamp/TopClients";
+import type { StoredImport, TopClient } from "@/lib/topClients";
+import type { RecentClient } from "@/lib/recentClients";
+import { recentKey } from "@/lib/recentKey";
+import { LogoCredit, RecentClients, TopClients, ago } from "@/components/revamp/TopClients";
 
 export type Campaign = {
   clientId: number;
@@ -160,11 +162,14 @@ export default function DataImport({
   sheet,
   onClose,
   onImported,
+  onImportKey,
 }: {
   up: (fn: (d: RevampCaseStudy) => void) => void;
   sheet: Pick<RevampCaseStudy, "facts" | "clientName" | "country" | "solutionLines" | "primaryContact">;
   onClose: () => void;
   onImported?: () => void;
+  // The saved-import key of the data now on the sheet, so a CMS draft can be linked to it.
+  onImportKey?: (key: string | null) => void;
 }) {
   const sheetRef = useRef(sheet);
   sheetRef.current = sheet;
@@ -180,6 +185,16 @@ export default function DataImport({
   const [busy, setBusy] = useState<"" | "search" | "import">("");
   const [msgs, setMsgs] = useState<string[]>([]);
   const [err, setErr] = useState(false);
+  // Clients anyone imported recently (shared): quick picks and "already imported" badges.
+  const [recent, setRecent] = useState<RecentClient[]>([]);
+  const loadRecent = () =>
+    fetch("/api/recent-clients")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => j?.recent && setRecent(j.recent))
+      .catch(() => {});
+  useEffect(() => {
+    loadRecent();
+  }, []);
 
   const search = async () => {
     const term = q.trim();
@@ -227,11 +242,21 @@ export default function DataImport({
   };
 
   const selected = { client, campaign };
-  const run = async (client: Client | null = selected.client, campaign: Campaign | null = selected.campaign) => {
+  // With `stored`, the saved data (weekly snapshot or a recent import) is applied instead of
+  // calling HubSpot and CallboxOne. A live import is saved for everyone afterwards.
+  const run = async (
+    client: Client | null = selected.client,
+    campaign: Campaign | null = selected.campaign,
+    stored?: StoredImport,
+    storedLabel = "saved data"
+  ) => {
     if (!client && !campaign) return;
     setBusy("import");
     setErr(false);
     const lines: string[] = [];
+    if (stored) lines.push(`Loaded from ${storedLabel}: no new HubSpot or CallboxOne calls. Search the client to pull fresh numbers.`);
+    let profUsed: any = null;
+    let resUsed: any = null;
     let failed = false;
     let pulledNumbers = false;
     // Fact merges are mirrored locally so the message can name facts left out by the limit.
@@ -244,10 +269,12 @@ export default function DataImport({
     };
     let firstWon: string | null = null;
 
-    if (client) {
-      setMsgs([`Reading ${client.name} from HubSpot…`]);
+    if (client && stored && !stored.hubspot) lines.push(`The ${storedLabel} has no HubSpot profile for ${client.name}.`);
+    if (client && (!stored || stored.hubspot)) {
+      setMsgs([...lines, stored ? `Loading ${client.name}…` : `Reading ${client.name} from HubSpot…`]);
       try {
-        const prof = await hsPost({ step: "client", companyId: client.companyId });
+        const prof: any = stored ? stored.hubspot : await hsPost({ step: "client", companyId: client.companyId });
+        profUsed = prof;
         const now = sheetRef.current;
         mergeLocal(prof.facts);
         up((d) => {
@@ -283,9 +310,15 @@ export default function DataImport({
       }
     }
 
-    if (campaign) {
+    if (campaign && stored && !stored.callboxone) {
+      lines.push(`The ${storedLabel} has no CallboxOne numbers for ${campaign.campaignName}${stored.error ? ` (${stored.error})` : ""}.`);
+    }
+    if (campaign && (!stored || stored.callboxone)) {
       try {
-        const res = await pullCampaign(campaign, { start, fallbackStart: firstWon, onProgress: (m) => setMsgs([...lines, m]) });
+        const res: any = stored
+          ? stored.callboxone
+          : await pullCampaign(campaign, { start, fallbackStart: firstWon, onProgress: (m) => setMsgs([...lines, m]) });
+        resUsed = res;
         mergeLocal(res.patch.facts);
         up((d) => applyCampaignPatch(d, res.patch));
         const notes: string[] = [...(res.notes || [])];
@@ -304,6 +337,20 @@ export default function DataImport({
     }
 
     if (dropped.size) lines.push(`Not shown, to stay within ${MAX_FACTS} facts (the AI still uses them): ${[...dropped].join(", ")}.`);
+    // A live import is saved for everyone ("Recently imported clients"); saved data isn't re-saved.
+    let key: string | null = recentKey(campaign?.clientAccountId, client?.companyId);
+    if (!stored && (profUsed || resUsed)) {
+      key = await fetch("/api/recent-clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client, campaign, hubspot: profUsed, callboxone: resUsed }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => j?.key ?? key)
+        .catch(() => key);
+      loadRecent();
+    }
+    if (profUsed || resUsed) onImportKey?.(key);
     if (pulledNumbers) {
       lines.push("The AI is now drafting the empty sections from this data.");
       onImported?.();
@@ -323,8 +370,26 @@ export default function DataImport({
     setCampaign(c.campaign);
     setSrcErr({});
     setSearched(true);
-    run(c.company, c.campaign);
+    run(c.company, c.campaign, c.stored, "this week's snapshot");
   };
+
+  // A recent import: load what was saved, without new calls.
+  const pickRecent = (r: RecentClient) => {
+    setQ(r.name);
+    setClients(r.company ? [r.company] : []);
+    setCampaigns(r.campaign ? [r.campaign] : []);
+    setClient(r.company);
+    setCampaign(r.campaign);
+    setSrcErr({});
+    setSearched(true);
+    run(r.company, r.campaign, r.stored, `the import saved ${ago(r.importedAt)}`);
+  };
+
+  // "Already imported" badges for search results.
+  const savedFor = (companyId?: string, clientAccountId?: number) =>
+    recent.find((r) => (companyId && r.company?.companyId === companyId) || (clientAccountId && r.campaign?.clientAccountId === clientAccountId));
+  const savedBadge = (r: RecentClient | undefined) =>
+    r ? ` · imported ${ago(r.importedAt)}${r.cmsDraft ? ` · CMS draft #${r.cmsDraft.id}` : ""}` : "";
 
   const what = [client && "HubSpot", campaign && "CallboxOne"].filter(Boolean).join(" + ");
 
@@ -358,6 +423,8 @@ export default function DataImport({
       </div>
 
       <TopClients onPick={pickTop} disabled={busy !== ""} />
+      <RecentClients recent={recent} onPick={pickRecent} disabled={busy !== ""} />
+      <LogoCredit />
 
       {searched && (
         <div style={{ marginTop: 12, display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
@@ -372,6 +439,7 @@ export default function DataImport({
                 <span style={muted}>
                   {c.deals} deal{c.deals === 1 ? "" : "s"}
                   {c.firstDeal ? ` · first deal created ${c.firstDeal}` : ""}
+                  {savedBadge(savedFor(c.companyId))}
                 </span>
               </button>
             ))}
@@ -385,6 +453,7 @@ export default function DataImport({
                 <span style={muted}>
                   {c.start ? `since ${c.start}` : "start unknown"}
                   {c.teamLeader ? ` · TL ${c.teamLeader}` : ""}
+                  {savedBadge(savedFor(undefined, c.clientAccountId))}
                 </span>
               </button>
             ))}

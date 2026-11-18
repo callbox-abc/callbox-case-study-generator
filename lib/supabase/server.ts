@@ -14,3 +14,12 @@ export function createClient() {
 
   return createSupabaseClient(url, anonKey);
 }
+
+// Server-only client with the service role key, for tables that hold client data and have no
+// public policies (daily_snapshots). Never import this from a client component.
+export function createServiceClient() {
+  const url = process.env.SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey) return null;
+  return createSupabaseClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+}

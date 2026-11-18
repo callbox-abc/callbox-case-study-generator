@@ -16,6 +16,15 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 export function proxy(req: NextRequest) {
+  // The weekly job is started by Vercel Cron, which can't log in: /api/cron/* gets through only
+  // with the CRON_SECRET bearer token (the route checks it again), and never with the shared login.
+  if (req.nextUrl.pathname.startsWith("/api/cron/")) {
+    const secret = process.env.CRON_SECRET;
+    const auth = req.headers.get("authorization") || "";
+    if (secret && safeEqual(auth, `Bearer ${secret}`)) return NextResponse.next();
+    return new NextResponse("Unauthorized.", { status: 401 });
+  }
+
   const user = process.env.DRAFT_USER;
   const pass = process.env.DRAFT_PS;
 
