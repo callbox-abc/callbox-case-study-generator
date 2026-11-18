@@ -17,7 +17,7 @@ const ALLOWED: [string, RegExp][] = [
   ["POST", /^\/crm\/v3\/objects\/deals\/batch\/read$/],
 ];
 
-const COMPANY_PROPS = ["name", "domain", "city", "state", "country", "industry", "numberofemployees"];
+const COMPANY_PROPS = ["name", "domain", "city", "state", "country", "industry", "numberofemployees", "description"];
 // No "amount" or any other money field: the generator has no use for them.
 const DEAL_PROPS = ["dealname", "closedate", "hs_is_closed_won"];
 
@@ -163,6 +163,7 @@ type Deal = { name: string; closed: Date };
 
 export type Relationship = {
   clientSince: string; // "February 2025"
+  firstWon: string; // "2025-02": CallboxOne's start-month fallback when a campaign code has none
   months: number; // first win to the latest win
   seats: { first: number; peak: number; latest: number } | null;
   services: string[];
@@ -187,13 +188,84 @@ export function relationshipFrom(deals: Deal[]): Relationship | null {
     found.add("SEO/AEO");
   }
 
-  return { clientSince: monthLabel(first), months, seats, services: [...found], wonDeals: sorted.length };
+  return {
+    clientSince: monthLabel(first),
+    firstWon: first.toISOString().slice(0, 7),
+    months,
+    seats,
+    services: [...found],
+    wonDeals: sorted.length,
+  };
+}
+
+/* --------------------------------- profile --------------------------------- */
+
+/* ------------------------------ solution lines ------------------------------ */
+
+// What the client sells, as 2-4 short lines ("Cybersecurity, managed services, networking"),
+// summarized from HubSpot's company description. Grounding is checked in code: every line must
+// share a word with the description, otherwise it is dropped. Empty when nothing survives.
+export async function solutionLinesFrom(description: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const text = description.trim();
+  if (!apiKey || text.length < 30) return "";
+  const { GoogleGenerativeAI } = await import("@google/generative-ai");
+  const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({
+    model: "gemini-2.5-flash",
+    generationConfig: { responseMimeType: "application/json", temperature: 0 },
+  });
+  const prompt =
+    "From this company description, list the 2 to 4 main service or product areas the company sells, " +
+    "as short noun phrases of 1 to 3 words each, using the description's own words (e.g. \"cybersecurity\", " +
+    "\"managed services\"). No adjectives like award-winning or comprehensive. Nothing that is not in the description. " +
+    'Return JSON: {"lines": string[]}\n\nDESCRIPTION:\n' +
+    text.slice(0, 1500);
+  let lines: string[] = [];
+  try {
+    const raw = (await model.generateContent(prompt)).response.text().replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(raw);
+    lines = Array.isArray(parsed?.lines) ? parsed.lines.map((x: unknown) => String(x || "").trim()) : [];
+  } catch {
+    return "";
+  }
+  return groundSolutionLines(lines, text);
+}
+
+// Marketing filler is stripped; generic words ("solutions", "services") don't count as grounding.
+const PUFFERY = /^(award-winning|comprehensive|leading|innovative|best-in-class|world-class|premier|trusted|cutting-edge|end-to-end|full-service|industry-leading)$/i;
+const GENERIC = new Set(["solution", "solutions", "service", "services", "product", "products", "provider", "providers", "offering", "offerings", "company"]);
+
+// Keeps only lines with a specific word (or 6-letter stem) that appears in the description,
+// max 4, as a sentence-case list.
+export function groundSolutionLines(lines: string[], description: string): string {
+  const tokens = (t: string) => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 2);
+  const words = new Set(tokens(description));
+  const stem = (w: string) => w.slice(0, 6);
+  const stems = new Set([...words].filter((w) => w.length >= 6).map(stem));
+  const grounded = lines
+    .map((l) => l.split(/\s+/).filter((w) => w && !PUFFERY.test(w)).join(" ").trim())
+    .filter((l) => l.length > 1 && l.length <= 40)
+    .filter((l) => tokens(l).some((w) => !GENERIC.has(w) && (words.has(w) || (w.length >= 6 && stems.has(stem(w))))))
+    .filter((l, i, all) => all.findIndex((x) => x.toLowerCase() === l.toLowerCase()) === i)
+    .slice(0, 4);
+  if (!grounded.length) return "";
+  // Sentence case list, keeping acronyms (IT, SEO): "Cybersecurity, managed services, IT consulting".
+  const tidy = grounded.map((l, i) =>
+    l
+      .split(/\s+/)
+      .map((w, j) => (/^[A-Z0-9]{2,}$/.test(w) ? w : i === 0 && j === 0 ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w.toLowerCase()))
+      .join(" ")
+  );
+  return tidy.join(", ");
 }
 
 /* --------------------------------- profile --------------------------------- */
 
 export type ClientProfile = {
-  company: { companyId: string; name: string; domain: string; headquarters: string; country: string; industry: string; size: string };
+  company: {
+    companyId: string; name: string; domain: string; headquarters: string; country: string; industry: string; size: string;
+    solutionLines: string;
+  };
   relationship: Relationship | null;
   facts: { label: string; value: string }[];
   notes: string[];
@@ -223,6 +295,7 @@ export async function clientProfile(companyId: string): Promise<ClientProfile> {
   }
 
   const rel = relationshipFrom(deals);
+  const solutionLines = await solutionLinesFrom(String(p.description || "")).catch(() => "");
   const info = {
     companyId,
     name: String(p.name || "").trim(),
@@ -231,6 +304,7 @@ export async function clientProfile(companyId: string): Promise<ClientProfile> {
     country: normalizeCountry(p.country),
     industry: industryLabel(p.industry),
     size: sizeBand(p.numberofemployees),
+    solutionLines,
   };
 
   const facts: { label: string; value: string }[] = [];
@@ -258,6 +332,7 @@ export async function clientProfile(companyId: string): Promise<ClientProfile> {
   const notes = [
     "Firmographics come from the HubSpot company record that holds this client's deals. HubSpot data can be out of date, so check them before publishing.",
   ];
+  if (solutionLines) notes.push("Solution lines were summarized from HubSpot's company description; check them.");
   if (!rel) notes.push("This record has no closed-won deals, so there is no client-since date or program growth.");
   else if (!rel.seats) notes.push("No seat counts were found in the deal names, so seat growth is not shown.");
 

@@ -40,12 +40,15 @@ export async function POST(req: NextRequest) {
     switch (body?.step) {
       case "plan": {
         const campaignName = String(body.campaignName || "");
-        const override = /^\d{4}-\d{2}$/.test(body.start || "") ? new Date(`${body.start}-01T00:00:00Z`) : null;
-        const start = override || startFromCampaignCode(campaignName);
+        const ym = (v: unknown) => (/^\d{4}-\d{2}$/.test(String(v || "")) ? new Date(`${v}-01T00:00:00Z`) : null);
+        // Start month: the writer's override, else the campaign code, else HubSpot's first closed deal.
+        const override = ym(body.start);
+        const fromCode = startFromCampaignCode(campaignName);
+        const start = override || fromCode || ym(body.fallbackStart);
         if (!start) return bad(`Couldn't read a start month from "${campaignName}". Enter it as YYYY-MM.`);
         const windows = quarterWindows(start).slice(-MAX_WINDOWS);
         if (!windows.length) return bad("Campaign start is in the future.");
-        return NextResponse.json({ windows });
+        return NextResponse.json({ windows, startSource: override ? "override" : fromCode ? "code" : "hubspot" });
       }
 
       case "window": {
