@@ -10,7 +10,32 @@ import { normalizeRevamp, toAcfPayload } from "@/lib/revamp";
 //   MAIN_CLIENT_USERNAME  WordPress username that owns the Application Password
 //   MAIN_CLIENT_PASSWORD  Application Password for that user
 //   WP_REVAMP_TEMPLATE (optional) template file path, default "template-case-study-revamp.php"
-//   WP_CASE_STUDY_PARENT_ID (optional) parent page id for case studies
+//   WP_CASE_STUDY_PARENT_ID (optional) parent page id for case studies. Without it, the parent is
+//     looked up: the page titled PARENT_TITLE, else the page with slug "case-studies".
+
+const PARENT_TITLE = "Callbox Lead Generation Success Stories";
+let parentCache: { id: number; title: string } | null = null;
+
+const decode = (t: string) =>
+  t.replace(/&#8211;/g, "–").replace(/&#8217;/g, "’").replace(/&amp;/g, "&").replace(/&#038;/g, "&").trim();
+
+// Every case study draft goes under the success stories hub page.
+async function findParent(base: string, headers: Record<string, string>): Promise<{ id: number; title: string } | null> {
+  const fromEnv = Number(process.env.WP_CASE_STUDY_PARENT_ID);
+  if (Number.isInteger(fromEnv) && fromEnv > 0) return { id: fromEnv, title: `page ${fromEnv}` };
+  if (parentCache) return parentCache;
+  const pick = async (query: string, match: (p: any) => boolean) => {
+    const res = await fetch(`${base}/wp-json/wp/v2/pages?${query}&_fields=id,title,slug&per_page=20`, { headers });
+    if (!res.ok) return null;
+    const list = await res.json().catch(() => []);
+    const hit = Array.isArray(list) ? list.find(match) : null;
+    return hit ? { id: Number(hit.id), title: decode(String(hit.title?.rendered || "")) } : null;
+  };
+  parentCache =
+    (await pick(`search=${encodeURIComponent(PARENT_TITLE)}`, (p) => decode(String(p?.title?.rendered || "")).toLowerCase() === PARENT_TITLE.toLowerCase())) ??
+    (await pick("slug=case-studies", (p) => p?.slug === "case-studies"));
+  return parentCache;
+}
 
 export async function POST(req: NextRequest) {
   const base = (process.env.MAINSITE_URL || "").replace(/\/+$/, "");
@@ -42,8 +67,9 @@ export async function POST(req: NextRequest) {
   const pageId = Number.isInteger(body.pageId) && (body.pageId as number) > 0 ? (body.pageId as number) : null;
 
   // Only ever touch a page that is still a draft.
+  let existingParent = 0;
   if (pageId) {
-    const check = await fetch(`${base}/wp-json/wp/v2/pages/${pageId}?context=edit&_fields=id,status`, { headers });
+    const check = await fetch(`${base}/wp-json/wp/v2/pages/${pageId}?context=edit&_fields=id,status,parent`, { headers });
     if (!check.ok) {
       return NextResponse.json({ error: `Could not load page ${pageId} (HTTP ${check.status}).` }, { status: 502 });
     }
@@ -54,6 +80,7 @@ export async function POST(req: NextRequest) {
         { status: 409 }
       );
     }
+    existingParent = Number(existing.parent) || 0;
   }
 
   const payload: Record<string, unknown> = {
@@ -62,8 +89,10 @@ export async function POST(req: NextRequest) {
     template: process.env.WP_REVAMP_TEMPLATE || "template-case-study-revamp.php",
     acf: toAcfPayload(revamp),
   };
-  const parent = Number(process.env.WP_CASE_STUDY_PARENT_ID);
-  if (!pageId && Number.isInteger(parent) && parent > 0) payload.parent = parent;
+  // New drafts, and drafts that still have no parent, go under the success stories page. A parent
+  // an editor picked by hand in wp-admin is left alone.
+  const parent = existingParent ? null : await findParent(base, headers).catch(() => null);
+  if (parent) payload.parent = parent.id;
 
   const url = pageId ? `${base}/wp-json/wp/v2/pages/${pageId}` : `${base}/wp-json/wp/v2/pages`;
   const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload) });
@@ -87,5 +116,12 @@ export async function POST(req: NextRequest) {
     template: json.template,
     editLink: `${base}/wp-admin/post.php?post=${json.id}&action=edit`,
     missingAcfKeys: missing,
+    // "set": placed under the hub page now; "kept": the draft already had a parent; "notFound":
+    // no hub page was found, so the draft has no parent.
+    parent: existingParent
+      ? { status: "kept", id: existingParent }
+      : parent
+        ? { status: "set", id: parent.id, title: parent.title }
+        : { status: "notFound" },
   });
 }
