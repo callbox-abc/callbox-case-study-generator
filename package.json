@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "template": "node scripts/build-template.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
@@ -22,6 +23,7 @@
     "@types/node": "^20.14.9",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
+    "docx": "^9.15.4",
     "typescript": "^5.5.3"
   }
 }
