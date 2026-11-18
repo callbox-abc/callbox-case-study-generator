@@ -15,6 +15,8 @@ const ALLOWED_TOOLS = new Set([
   "list_campaigns",
   "get_report_stats",
   "get_opportunity_progression",
+  "list_team_leaders",
+  "get_hubspot_report",
 ]);
 
 export async function withCallboxOne<T>(fn: (call: (name: string, args: Record<string, unknown>) => Promise<any>) => Promise<T>): Promise<T> {
@@ -52,14 +54,21 @@ export async function withCallboxOne<T>(fn: (call: (name: string, args: Record<s
 /* ------------------------------------ helpers ------------------------------------ */
 
 // Campaign codes end in YYMM + sequence digit, e.g. NETRIX25071 = July 2025.
+// The sequence can be two digits (ALPA260716 = Jul 2026, seq 16) and a region suffix can follow
+// (IBMH26081-Indonesia), so both sequence lengths are tried and the first plausible month wins.
 export function startFromCampaignCode(code: string): Date | null {
-  const m = /(\d{2})(\d{2})\d$/.exec((code || "").trim());
-  if (!m) return null;
-  const year = 2000 + Number(m[1]);
-  const month = Number(m[2]);
-  if (month < 1 || month > 12) return null;
-  const d = new Date(Date.UTC(year, month - 1, 1));
-  return d > new Date() ? null : d;
+  const c = (code || "").trim().replace(/-[A-Za-z][A-Za-z\s-]*$/, "");
+  const now = new Date();
+  for (const re of [/(\d{2})(\d{2})\d$/, /(\d{2})(\d{2})\d{2}$/]) {
+    const m = re.exec(c);
+    if (!m) continue;
+    const year = 2000 + Number(m[1]);
+    const month = Number(m[2]);
+    if (month < 1 || month > 12 || year < 2015) continue;
+    const d = new Date(Date.UTC(year, month - 1, 1));
+    if (d <= now) return d;
+  }
+  return null;
 }
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
