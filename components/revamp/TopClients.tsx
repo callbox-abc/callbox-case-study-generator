@@ -138,12 +138,17 @@ export function TopClients({ onPick, disabled }: { onPick: (c: TopClient) => voi
           ? "Loading this week's clients…"
           : !snap
             ? running
-              ? `The first weekly snapshot is being built (${job!.measured} of ${job!.candidates || "…"} clients checked). Check back in a few minutes.`
-              : "No snapshot yet. It's built every Monday at 8:00 AM PH."
+              ? `The first weekly snapshot is being built (${job!.measured} of ${job!.candidates || "…"} clients checked${
+                  job!.phase === "import" ? ", now saving the top 5" : ""
+                }). Check back in a few minutes.${job!.lastError ? ` Last error: ${job!.lastError}` : ""}`
+              : job?.status === "failed"
+                ? `This week's snapshot failed${job.lastError ? `: ${job.lastError}` : "."} It runs again Monday at 8:00 AM PH.`
+                : "No snapshot yet. It's built every Monday at 8:00 AM PH."
             : [
                 `Snapshot from ${dayLabel(snap.refreshedAt)} · ranked ${snap.measured} of ${snap.candidates} clients`,
                 snap.skippedUnnamed ? `${snap.skippedUnnamed} skipped (no company name in CallboxOne or HubSpot)` : "",
                 stale && running ? `this week's update is running (${job!.measured} of ${job!.candidates || "…"} checked)` : "",
+                stale && job?.lastError ? `last error: ${job.lastError}` : "",
                 stale && job?.status === "failed" ? "this week's update failed, so last week's list is shown" : "",
                 `next update ${dayLabel(snap.nextRefresh)}, 8:00 AM PH`,
               ]
