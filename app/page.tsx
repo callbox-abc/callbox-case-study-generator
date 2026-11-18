@@ -7,6 +7,7 @@ import { copyText } from "@/lib/types";
 import { RevampCaseStudy, EMPTY_REVAMP, normalizeRevamp, revampPlainText } from "@/lib/revamp";
 import { applyDrafted, pendingFields } from "@/lib/narrative";
 import { modelLabel } from "@/lib/aiModels";
+import { codeLetters, sheetMatchesClient } from "@/lib/clientMatch";
 import RevampSheet, { C as SHEET } from "@/components/revamp/RevampSheet";
 import DataImport, { type ImportSource } from "@/components/revamp/DataImport";
 import type { RecentClient } from "@/lib/recentClients";
@@ -235,10 +236,19 @@ export default function Page() {
 
   // Restores a saved sheet as is. Unreviewed AI fields get their banner back; the AI only fills
   // fields that are still empty.
-  const loadSaved = (r: RecentClient) => {
+  // Returns false when the saved sheet can't be used (the import panel then loads the saved data).
+  const loadSaved = (r: RecentClient): boolean => {
     const saved = r.sheet;
-    if (!saved) return;
+    if (!saved) return false;
     const sheet = normalizeRevamp(saved.data);
+    // A sheet that names another client was saved while an old bug merged two clients: ignore it.
+    // Loading the client's own data instead, then Save, replaces the bad copy.
+    if (!sheetMatchesClient(sheet.clientName, [r.name, r.company?.name, r.campaign?.clientName, codeLetters(r.campaign?.campaignName)])) {
+      setNotice(
+        `${r.name}'s saved sheet names ${sheet.clientName}, so it was ignored and ${r.name}'s own data was loaded instead. Click Save to replace the bad copy.`
+      );
+      return false;
+    }
     importSourceRef.current = { key: r.key, client: r.company, campaign: r.campaign, stored: r.stored };
     reviewedRef.current = saved.reviewed;
     lastSavedRef.current = saveFingerprint(sheet, saved.reviewed);
@@ -253,6 +263,7 @@ export default function Page() {
       setAiState("idle");
     }
     if (pendingFields(sheet).size > 0) requestAutoDraft();
+    return true;
   };
 
   const draftWithAi = async (auto = false) => {
