@@ -26,7 +26,8 @@ result goes out as a PDF or as a WordPress draft on the CMS.
 - **This week's most active clients**: 5 cards built once a week (see below). A click loads the saved data
   instantly, with no live calls.
 - **Recently imported clients**: every live import, shared by everyone using the app, with when it was
-  pulled, whether its sheet is reviewed or a draft, and any CMS draft made from it.
+  pulled, whether its sheet is reviewed or a draft, and any CMS draft made from it. One entry per
+  campaign (one per HubSpot company for a HubSpot-only import), whether or not HubSpot matched it.
 - **"Already in recent search" prompt**: searching or importing a saved client asks first:
   **Use Cached data** (default) or **Fetch Live Data** (replaces the saved copy for everyone).
 

@@ -490,7 +490,11 @@ export default function DataImport({
         .catch(() => undefined);
       setBusy("");
     }
-    if (saved?.sheet && onLoadSaved) return loadSaved(saved);
+    // An entry saved before HubSpot matched this campaign gets the card's company (name, logo).
+    if (saved?.sheet && onLoadSaved)
+      return loadSaved(
+        saved.company || !c.company ? saved : { ...saved, company: c.company, name: c.company.name || saved.name, domain: c.company.domain || saved.domain }
+      );
     setQ(c.name);
     setClients(c.company ? [c.company] : []);
     setCampaigns([c.campaign]);

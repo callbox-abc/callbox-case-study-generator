@@ -8,8 +8,12 @@
 --                                       clients, with each one's full import data
 --   top-clients:job:<monday date>       that week's job: progress between steps, and the
 --                                       once-a-week lock
---   recent:<clientAccountId>:<companyId>  a client someone imported (shared "Recently imported
---                                       clients"), with any CMS draft made from it; kept 60 days
+--   recent:<clientAccountId>            a campaign someone imported (shared "Recently imported
+--                                       clients"), with its saved sheet and any CMS draft made from
+--                                       it; kept 60 days
+--   recent:-:<companyId>                a HubSpot-only import (no campaign)
+--   backup:recent:<old key>             entries merged into recent:<clientAccountId> when keys
+--                                       stopped including the HubSpot company; kept 60 days
 
 create table if not exists public.app_cache (
   key        text primary key,

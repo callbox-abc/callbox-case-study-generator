@@ -5,9 +5,10 @@
 
 import type { ClientCandidate } from "@/lib/hubspot";
 import { normalizeRevamp, type RevampCaseStudy } from "@/lib/revamp";
-import { recentKey } from "@/lib/recentKey";
+import { canonicalRecentKey, isLegacyRecentKey, recentKey } from "@/lib/recentKey";
+import { mergeRecentEntries, withCompany } from "@/lib/recentMerge";
 import { createServiceClient } from "@/lib/supabase/server";
-import type { StoredImport, TopCampaign } from "@/lib/topClients";
+import type { StoredImport, TopCampaign, TopClientsSnapshot } from "@/lib/topClients";
 
 export type RecentClient = {
   key: string;
@@ -33,6 +34,8 @@ export type SavedSheet = {
 
 const TABLE = "app_cache";
 const PREFIX = "recent:";
+const BACKUP = "backup:"; // entries merged away by mergeLegacyEntries, kept KEEP_DAYS
+const TOP_CLIENTS = "top-clients:latest"; // the weekly snapshot (lib/topClients.ts)
 const KEEP_DAYS = 60;
 const LIST_SIZE = 12;
 const MAX_BYTES = 200_000;
@@ -43,8 +46,65 @@ function db() {
   return c;
 }
 
+/* ------------------------- one entry per campaign (old keys) ------------------------- */
+
+// Entries used to be keyed by campaign + HubSpot company, so a campaign saved before HubSpot
+// matched it (no company) and after (with one) became two entries, each with its own sheet and
+// CMS draft link. Those are merged into the campaign's single entry (lib/recentMerge.ts), once
+// per server instance, before anything reads or writes an entry. Each old row is copied to
+// backup:<old key> first; the backups are removed after KEEP_DAYS. A merged entry that still has
+// no HubSpot company gets the one this week's top clients matched to its campaign.
+type Row = { key: string; payload: RecentClient; updated_at: string };
+let merged: Promise<void> | null = null;
+
+function ensureMerged(): Promise<void> {
+  merged ??= mergeLegacyEntries().then(
+    () => undefined,
+    (e) => {
+      merged = null; // try again on the next request
+      console.error("recent-clients merge failed:", e instanceof Error ? e.message : e);
+    }
+  );
+  return merged;
+}
+
+export async function mergeLegacyEntries(): Promise<number> {
+  const { data, error } = await db().from(TABLE).select("key, payload, updated_at").like("key", `${PREFIX}%:%`);
+  if (error) throw new Error(`Supabase: ${error.message}`);
+  const legacy = ((data || []) as Row[]).filter((r) => isLegacyRecentKey(r.key));
+  if (!legacy.length) return 0;
+
+  const groups = new Map<string, Row[]>();
+  for (const r of legacy) groups.set(canonicalRecentKey(r.key), [...(groups.get(canonicalRecentKey(r.key)) || []), r]);
+  // A campaign entry already saved under its new key joins its group.
+  const { data: current, error: currentError } = await db().from(TABLE).select("key, payload, updated_at").in("key", [...groups.keys()]);
+  if (currentError) throw new Error(`Supabase: ${currentError.message}`);
+  for (const r of (current || []) as Row[]) groups.get(r.key)?.push(r);
+  const { data: snap } = await db().from(TABLE).select("payload").eq("key", TOP_CLIENTS).maybeSingle();
+  const matched = new Map(
+    ((snap?.payload as TopClientsSnapshot | undefined)?.clients || []).map((c) => [recentKey(c.campaign?.clientAccountId), c.company])
+  );
+
+  const now = new Date().toISOString();
+  const backups = legacy.map((r) => ({ key: BACKUP + r.key, cycle: now.slice(0, 10), status: "merged", payload: r.payload, updated_at: now }));
+  const { error: backupError } = await db().from(TABLE).upsert(backups);
+  if (backupError) throw new Error(`Supabase: ${backupError.message}`);
+
+  const rows = [...groups].map(([key, g]) => {
+    const updated = g.map((r) => r.updated_at).sort().at(-1) || now; // keeps its place in the list
+    return { key, cycle: updated.slice(0, 10), status: "saved", payload: withCompany(mergeRecentEntries(key, g.map((r) => r.payload)), matched.get(key)), updated_at: updated };
+  });
+  const { error: saveError } = await db().from(TABLE).upsert(rows);
+  if (saveError) throw new Error(`Supabase: ${saveError.message}`);
+  const { error: deleteError } = await db().from(TABLE).delete().in("key", legacy.map((r) => r.key));
+  if (deleteError) throw new Error(`Supabase: ${deleteError.message}`);
+  return legacy.length;
+}
+
+/* ---------------------------------- reads ---------------------------------- */
 
 export async function listRecent(): Promise<RecentClient[]> {
+  await ensureMerged();
   const { data, error } = await db()
     .from(TABLE)
     .select("payload")
@@ -58,6 +118,8 @@ export async function listRecent(): Promise<RecentClient[]> {
 // One client's entry, wherever it is in the list (the list only shows the latest few).
 export async function getRecent(key: string): Promise<RecentClient | null> {
   if (!key.startsWith(PREFIX)) return null;
+  await ensureMerged();
+  key = canonicalRecentKey(key); // a page opened before the key change may still send an old key
   const { data, error } = await db().from(TABLE).select("payload").eq("key", key).maybeSingle();
   if (error) throw new Error(`Supabase: ${error.message}`);
   return (data?.payload as RecentClient) ?? null;
@@ -110,6 +172,7 @@ export async function saveRecent(body: any): Promise<string | null> {
   const company = cleanCompany(body?.company);
   const stored = cleanStored(body?.hubspot, body?.callboxone);
   if (!stored.hubspot && !stored.callboxone) return null;
+  await ensureMerged();
   const key = recentKey(campaign?.clientAccountId, company?.companyId);
 
   const { data: prev } = await db().from(TABLE).select("payload").eq("key", key).maybeSingle();
@@ -133,6 +196,7 @@ export async function saveRecent(body: any): Promise<string | null> {
   // Keep the list small: entries untouched for KEEP_DAYS are removed.
   const cutoff = new Date(Date.now() - KEEP_DAYS * 864e5).toISOString();
   await db().from(TABLE).delete().like("key", `${PREFIX}%`).lt("updated_at", cutoff);
+  await db().from(TABLE).delete().like("key", `${BACKUP}%`).lt("updated_at", cutoff);
   return key;
 }
 
@@ -140,8 +204,9 @@ export async function saveRecent(body: any): Promise<string | null> {
 // no entry yet, so one is created from the snapshot's import data.
 export async function saveSheet(body: any): Promise<void> {
   if (JSON.stringify(body ?? {}).length > MAX_BYTES) throw new Error("Sheet too large to save.");
-  const key = String(body?.key || "");
+  const key = canonicalRecentKey(String(body?.key || ""));
   if (!key.startsWith(PREFIX)) throw new Error("Invalid key.");
+  await ensureMerged();
   const sheet: SavedSheet = {
     data: normalizeRevamp(body?.sheet),
     reviewed: body?.reviewed === true,
@@ -167,6 +232,8 @@ export async function saveSheet(body: any): Promise<void> {
       cmsDraft: null,
     };
   }
+  // Saved before HubSpot matched this campaign: take the company now that it's known.
+  entry = withCompany(entry, cleanCompany(body?.client));
   entry.sheet = sheet;
   const { error } = await db().from(TABLE).upsert({ key, cycle: sheet.savedAt.slice(0, 10), status: "saved", payload: entry, updated_at: sheet.savedAt });
   if (error) throw new Error(`Supabase: ${error.message}`);
@@ -175,6 +242,8 @@ export async function saveSheet(body: any): Promise<void> {
 // Records that a CMS draft was created from this client's import.
 export async function attachDraft(key: string, id: number, editLink: string) {
   if (!key.startsWith(PREFIX) || !Number.isInteger(id) || id <= 0) return;
+  await ensureMerged();
+  key = canonicalRecentKey(key);
   const { data } = await db().from(TABLE).select("payload").eq("key", key).maybeSingle();
   if (!data) return;
   const entry = data.payload as RecentClient;
