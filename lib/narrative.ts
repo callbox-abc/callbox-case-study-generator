@@ -302,6 +302,41 @@ export function sentenceCase(t: string, keep: Set<string>): string {
     .join(" ");
 }
 
+// Headlines use Title Case, like the live case study titles. Small words stay lowercase unless
+// first or last; acronyms and mixed-case words (US, IT, MSP, SaaS, LinkedIn) are kept as written.
+const SMALL_WORDS = new Set(["a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet", "at", "by", "in", "of", "on", "to", "up", "as", "via", "vs", "per"]);
+export function titleCase(t: string): string {
+  const words = t.split(/\s+/).filter(Boolean);
+  return words
+    .map((w, i) =>
+      w
+        .split("-")
+        .map((part, j) => {
+          const m = /^([("'“]*)([A-Za-z][A-Za-z’']*)(.*)$/.exec(part);
+          if (!m) return part; // numbers such as 111 or 3x
+          const [, pre, core, post] = m;
+          if (/[A-Z]/.test(core.slice(1))) return part;
+          const edge = (i === 0 && j === 0) || i === words.length - 1;
+          if (!edge && j === 0 && SMALL_WORDS.has(core.toLowerCase())) return pre + core.toLowerCase() + post;
+          return pre + core[0].toUpperCase() + core.slice(1).toLowerCase() + post;
+        })
+        .join("-")
+    )
+    .join(" ");
+}
+
+// Case study headlines describe the client by type ("US-Based Cybersecurity Provider"), never by
+// name. True when the text contains a distinctive word of the client's name.
+const NAME_GENERIC = new Set([
+  "inc", "llc", "ltd", "corp", "co", "group", "global", "holdings", "company", "solutions", "technologies",
+  "technology", "systems", "services", "international", "the", "and",
+]);
+export function namesClient(text: string, clientName: string): boolean {
+  const toks = clientName.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !NAME_GENERIC.has(w));
+  const t = text.toLowerCase();
+  return toks.some((w) => new RegExp(`\\b${w}\\b`).test(t));
+}
+
 // "Callbox recommends two actions" must match the number of items actually kept.
 const COUNT_WORDS = ["zero", "one", "two", "three", "four", "five", "six"];
 export function matchItemCount(text: string, n: number): string {
@@ -352,10 +387,16 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
     }
   };
 
-  set("Headline", next.headline, gh(draft.headline), (v) => (next.headline = v));
-  // Highlight must be an exact substring of the (final) headline.
-  const hl = g(draft.headlineHighlight);
-  if (empty(next.headlineHighlight) && hl && next.headline.includes(hl)) next.headlineHighlight = hl;
+  // Headline: Title Case like the live case study titles, and never the client's name (a drafted
+  // headline that names the client is dropped, not edited).
+  const headline = titleCase(g(draft.headline).replace(/[\s:;,.]+$/, ""));
+  const headlineOk = headline && !namesClient(headline, r.clientName) ? headline : "";
+  if (headline && !headlineOk) dropped.n += 1;
+  set("Headline", next.headline, headlineOk, (v) => (next.headline = v));
+  // Highlight must be a substring of the (final) headline: matched ignoring case, taken from it.
+  const hl = g(draft.headlineHighlight).replace(/[\s:;,.]+$/, "");
+  const at = hl ? next.headline.toLowerCase().indexOf(hl.toLowerCase()) : -1;
+  if (empty(next.headlineHighlight) && at >= 0) next.headlineHighlight = next.headline.slice(at, at + hl.length);
   set("Dek", next.dek, g(draft.dek), (v) => (next.dek = v));
   set("Sub-dek", next.subDek, g(draft.subDek), (v) => (next.subDek = v));
 
