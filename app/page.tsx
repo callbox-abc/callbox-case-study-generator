@@ -7,8 +7,7 @@ import { copyText } from "@/lib/types";
 import { RevampCaseStudy, EMPTY_REVAMP, normalizeRevamp, revampPlainText } from "@/lib/revamp";
 import { applyDrafted, pendingFields } from "@/lib/narrative";
 import RevampSheet, { C as SHEET } from "@/components/revamp/RevampSheet";
-import CallboxOneImport from "@/components/revamp/CallboxOneImport";
-import HubSpotImport from "@/components/revamp/HubSpotImport";
+import DataImport from "@/components/revamp/DataImport";
 
 // Palette lifted directly from Callbox's corporate case study PDF template.
 const BG = "#101114";
@@ -490,7 +489,7 @@ export default function Page() {
                 setShowImport(true);
               }}
             >
-              Start from CallboxOne data
+              Start from HubSpot + CallboxOne data
             </button>
           </div>
         </div>
@@ -618,12 +617,7 @@ export default function Page() {
         </div>
       </div>
 
-      {showImport && (
-        <>
-          <HubSpotImport up={up} sheet={cs} />
-          <CallboxOneImport up={up} facts={cs.facts} onClose={() => setShowImport(false)} onImported={requestAutoDraft} />
-        </>
-      )}
+      {showImport && <DataImport up={up} sheet={cs} onClose={() => setShowImport(false)} onImported={requestAutoDraft} />}
 
       {aiState !== "idle" && (
         <div
