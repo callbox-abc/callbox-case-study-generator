@@ -202,9 +202,9 @@ export function relationshipFrom(deals: Deal[]): Relationship | null {
 
 /* ------------------------------ solution lines ------------------------------ */
 
-// What the client sells, as 2-4 short lines ("Cybersecurity, managed services, networking"),
-// summarized from HubSpot's company description. Grounding is checked in code: every line must
-// share a word with the description, otherwise it is dropped. Empty when nothing survives.
+// The client's ONE core solution ("Cybersecurity", "Payroll software"), summarized from HubSpot's
+// company description. The model ranks a main pick plus up to two fallbacks; the first one that
+// passes the grounding check in code is used. Empty when none does.
 export async function solutionLinesFrom(description: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   const text = description.trim();
@@ -215,10 +215,10 @@ export async function solutionLinesFrom(description: string): Promise<string> {
     generationConfig: { responseMimeType: "application/json", temperature: 0 },
   });
   const prompt =
-    "From this company description, list the 2 to 4 main service or product areas the company sells, " +
-    "as short noun phrases of 1 to 3 words each, using the description's own words (e.g. \"cybersecurity\", " +
-    "\"managed services\"). No adjectives like award-winning or comprehensive. Nothing that is not in the description. " +
-    'Return JSON: {"lines": string[]}\n\nDESCRIPTION:\n' +
+    "From this company description, name the ONE core solution the company sells: its main category, " +
+    "1 to 3 words, in the description's own words (e.g. \"Cybersecurity\", \"Managed IT services\", \"Payroll software\"). " +
+    "Then up to 2 alternatives, best first. No adjectives like award-winning or comprehensive. Nothing that is not in the description. " +
+    'Return JSON: {"lines": [main, ...alternatives]}\n\nDESCRIPTION:\n' +
     text.slice(0, 1500);
   let lines: string[] = [];
   try {
@@ -236,8 +236,8 @@ const PUFFERY = /^(award-winning|comprehensive|leading|innovative|best-in-class|
 const GENERIC = new Set(["solution", "solutions", "service", "services", "product", "products", "provider", "providers", "offering", "offerings", "company"]);
 
 // Keeps only lines with a specific word (or 6-letter stem) that appears in the description,
-// max 4, as a sentence-case list.
-export function groundSolutionLines(lines: string[], description: string): string {
+// up to `max` (1 by default: the first grounded pick), as a sentence-case list.
+export function groundSolutionLines(lines: string[], description: string, max = 1): string {
   const tokens = (t: string) => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 2);
   const words = new Set(tokens(description));
   const stem = (w: string) => w.slice(0, 6);
@@ -247,7 +247,7 @@ export function groundSolutionLines(lines: string[], description: string): strin
     .filter((l) => l.length > 1 && l.length <= 40)
     .filter((l) => tokens(l).some((w) => !GENERIC.has(w) && (words.has(w) || (w.length >= 6 && stems.has(stem(w))))))
     .filter((l, i, all) => all.findIndex((x) => x.toLowerCase() === l.toLowerCase()) === i)
-    .slice(0, 4);
+    .slice(0, max);
   if (!grounded.length) return "";
   // Sentence case list, keeping acronyms (IT, SEO): "Cybersecurity, managed services, IT consulting".
   const tidy = grounded.map((l, i) =>
@@ -332,7 +332,7 @@ export async function clientProfile(companyId: string): Promise<ClientProfile> {
   const notes = [
     "Firmographics come from the HubSpot company record that holds this client's deals. HubSpot data can be out of date, so check them before publishing.",
   ];
-  if (solutionLines) notes.push("Solution lines were summarized from HubSpot's company description; check them.");
+  if (solutionLines) notes.push("The solution line was summarized from HubSpot's company description; check it.");
   if (!rel) notes.push("This record has no closed-won deals, so there is no client-since date or program growth.");
   else if (!rel.seats) notes.push("No seat counts were found in the deal names, so seat growth is not shown.");
 
