@@ -26,6 +26,8 @@ export type NarrativeDraft = {
   whereNext?: { heading?: string; intro?: string; recommendations?: TitledItem[] };
   // A number-free second heading per section, used when the main one fails the checks.
   headingBackups?: Partial<Record<SectionKey, string>>;
+  // A second headline under the same rules, used when the main one fails the checks.
+  headlineBackup?: string;
 };
 
 type SectionKey = "situation" | "channels" | "primaryContact" | "howItRan" | "progression" | "funnel" | "whatChanged" | "whereNext";
@@ -41,6 +43,7 @@ export const NARRATIVE_SHAPE = `{
   "funnel": {"heading": string, "intro": string},
   "whatChanged": {"heading": string, "outcomes": string[]},
   "whereNext": {"heading": string, "intro": string, "recommendations": [{"title": string, "body": string}]},
+  "headlineBackup": string,
   "headingBackups": {"situation": string, "channels": string, "primaryContact": string, "howItRan": string,
     "progression": string, "funnel": string, "whatChanged": string, "whereNext": string}
 }`;
@@ -126,7 +129,8 @@ export function narrativeInput(r: RevampCaseStudy) {
       howItRanSteps: r.howItRan.steps, outcomes: r.whatChanged.outcomes,
     },
     heroStats: r.heroStats,
-    facts: r.facts,
+    // Facts on display plus imported facts left off it by the display limit.
+    facts: [...r.facts, ...(r.internal?.extraFacts ?? [])],
     channels: r.channels.rows,
     appointmentsBySeniority: r.howItRan.roles,
     rolesFootnote: r.howItRan.rolesFootnote,
@@ -282,6 +286,8 @@ export function plainWords(t: string): string {
       const w = e === "ing" ? "working" : e === "es" ? "works" : e === "ed" ? "worked" : "work";
       return (verb[0] === verb[0].toUpperCase() ? w[0].toUpperCase() + w.slice(1) : w) + sp + rest;
     })
+    // Appointments are set, not held: only "first appointment transpired" counts meetings held.
+    .replace(/\b(appointments|meetings)\s+held\s+with\b/gi, (m: string) => (m[0] === "A" || m[0] === "M" ? "Appointments with" : "appointments with"))
     .replace(/\s*\b(successfully|effectively|seamlessly)\b/gi, "")
     .replace(/\s+([,.;:!?])/g, "$1")
     .replace(/\butiliz(e|es|ed|ing)\b/gi, (_m, e: string) => ({ e: "use", es: "uses", ed: "used", ing: "using" } as Record<string, string>)[e.toLowerCase()])
@@ -349,6 +355,18 @@ export function titleCase(t: string): string {
     .join(" ");
 }
 
+// Section headings that only name the section ("Channel performance", "Key outcomes from the
+// program") instead of saying what happened in it.
+const GENERIC_HEADING = new RegExp(
+  "^(the\\s+)?(" +
+    "(channel|program|campaign)\\s+(performance|results|overview)" +
+    "|key\\s+(outcomes|results|takeaways)(\\s+from\\s+the\\s+(program|campaign))?" +
+    "|results|outcomes|overview|summary|next steps|recommendations" +
+    "|optimi[sz]ing\\s+for\\s+(future\\s+)?growth" +
+    ")$",
+  "i"
+);
+
 // Case study headlines describe the client by type ("US-Based Cybersecurity Provider"), never by
 // name. True when the text contains a distinctive word of the client's name.
 const NAME_GENERIC = new Set([
@@ -366,10 +384,11 @@ const COUNT_WORDS = ["zero", "one", "two", "three", "four", "five", "six"];
 export function matchItemCount(text: string, n: number): string {
   if (!text || n < 1 || n > 6) return text;
   return text.replace(
-    /\b(one|two|three|four|five|six|\d)(\s+)(key\s+|clear\s+|main\s+)?(actions?|recommendations?|steps?|moves?|priorities|priority|changes?)\b/gi,
+    /\b(one|two|three|four|five|six|\d|several|a few|a couple of|multiple|a number of)(\s+)(key\s+|clear\s+|main\s+)?(actions?|recommendations?|steps?|moves?|priorities|priority|changes?)\b/gi,
     (_m, _num: string, sp: string, adj: string | undefined, noun: string) => {
       const base = noun.toLowerCase().replace(/ies$/, "y").replace(/s$/, "");
       const plural = n === 1 ? base : base === "priority" ? "priorities" : base + "s";
+      // Vague counts ("several actions") become the real count too.
       const word = /^\d$/.test(_num) ? String(n) : COUNT_WORDS[n];
       const cased = _num[0] === _num[0].toUpperCase() && !/^\d$/.test(_num) ? word[0].toUpperCase() + word.slice(1) : word;
       return `${cased}${sp}${adj ?? ""}${plural}`;
@@ -404,9 +423,18 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
           .filter((x) => x.title && x.body)
       : [];
 
-  // Section heading: the main one if it passes the checks, else the number-free backup.
+  // Section heading: the main one if it passes the checks and says something specific, else the
+  // number-free backup. A generic label only survives when neither is specific.
   const hb = draft.headingBackups || {};
-  const head = (main: unknown, key: SectionKey) => gh(main) || gh(hb[key]);
+  const role = r.primaryContact.role.trim().toLowerCase();
+  const generic = (h: string) => GENERIC_HEADING.test(h.trim()) || (role.length > 0 && h.trim().toLowerCase().replace(/^the\s+/, "") === role);
+  const head = (main: unknown, key: SectionKey) => {
+    const a = gh(main);
+    const b = gh(hb[key]);
+    if (a && !generic(a)) return a;
+    if (b && !generic(b)) return b;
+    return a || b;
+  };
 
   const set = <T>(label: string, current: T, value: T, apply: (v: T) => void) => {
     if (empty(current) && !empty(value)) {
@@ -415,12 +443,38 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
     }
   };
 
-  // Headline: Title Case like the live case study titles, and never the client's name (a drafted
-  // headline that names the client is dropped, not edited).
-  const headline = titleCase(g(draft.headline).replace(/[\s:;,.]+$/, ""));
-  const headlineOk = headline && !namesClient(headline, r.clientName) ? headline : "";
-  if (headline && !headlineOk) noteDrop(dropped, headline, "names the client");
-  set("Headline", next.headline, headlineOk, (v) => (next.headline = v));
+  // Headline: Title Case like the live case study titles. A drafted headline is dropped (never
+  // edited) when it names the client or credits the whole appointment total to one channel
+  // ("111 Appointments Through LinkedIn" when LinkedIn produced 87); the backup headline is then
+  // tried under the same checks.
+  const totals = new Set<string>();
+  const tracked = r.channels.rows.reduce((t, x) => t + (x.appointments ?? 0), 0);
+  if (tracked) totals.add(String(tracked));
+  const apptStat = r.heroStats.find((x) => /appointment/i.test(x.label));
+  if (apptStat) totals.add(norm(apptStat.value));
+  const headlineIssue = (h: string): string => {
+    if (namesClient(h, r.clientName)) return "names the client";
+    const nums = (h.match(NUM) || []).map(norm);
+    const named = r.channels.rows.filter((x) => {
+      const name = x.name.replace(/[^A-Za-z0-9]/g, "");
+      return name && new RegExp(`\\b${name}\\b`, "i").test(h);
+    });
+    if (named.length === 1 && nums.some((v) => totals.has(v) && v !== String(named[0].appointments))) {
+      return `credits all appointments to ${named[0].name}`;
+    }
+    return "";
+  };
+  const pickHeadline = (...candidates: unknown[]): string => {
+    for (const c of candidates) {
+      const h = titleCase(g(c).replace(/[\s:;,.]+$/, ""));
+      if (!h) continue;
+      const issue = headlineIssue(h);
+      if (!issue) return h;
+      noteDrop(dropped, h, issue);
+    }
+    return "";
+  };
+  set("Headline", next.headline, pickHeadline(draft.headline, draft.headlineBackup), (v) => (next.headline = v));
   // Highlight must be a substring of the (final) headline: matched ignoring case, taken from it.
   const hl = g(draft.headlineHighlight).replace(/[\s:;,.]+$/, "");
   const at = hl ? next.headline.toLowerCase().indexOf(hl.toLowerCase()) : -1;

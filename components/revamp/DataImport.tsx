@@ -11,7 +11,7 @@
 // Narrative text is never touched; client name and country are filled only when empty.
 
 import { useRef, useState } from "react";
-import { MAX_FACTS, mergeFacts, type RevampCaseStudy } from "@/lib/revamp";
+import { MAX_FACTS, applyImportedFacts, mergeFacts, type RevampCaseStudy } from "@/lib/revamp";
 
 type Campaign = {
   clientId: number;
@@ -128,7 +128,7 @@ async function pullCampaign(c: Campaign, opts: { start: string; fallbackStart: s
 
 function applyCampaignPatch(d: RevampCaseStudy, p: any) {
   d.heroStats = p.heroStats;
-  d.facts = mergeFacts(d.facts, p.facts).facts;
+  applyImportedFacts(d, p.facts);
   d.channels.rows = p.channels.rows;
   d.progression.quarters = p.progression.quarters.map((nq: any) => {
     const old = d.progression.quarters.find((oq) => oq.label === nq.label);
@@ -248,7 +248,7 @@ export default function DataImport({
         const now = sheetRef.current;
         mergeLocal(prof.facts);
         up((d) => {
-          d.facts = mergeFacts(d.facts, prof.facts).facts;
+          applyImportedFacts(d, prof.facts);
           if (!d.clientName.trim() && prof.company.name) d.clientName = prof.company.name;
           if (!d.country.trim() && prof.company.country) d.country = prof.company.country;
           if (!d.solutionLines.trim() && prof.company.solutionLines) d.solutionLines = prof.company.solutionLines;
@@ -257,7 +257,7 @@ export default function DataImport({
             if (!d.primaryContact.role.trim()) d.primaryContact.role = pc.role;
             if (!d.primaryContact.eyebrow.trim()) d.primaryContact.eyebrow = "Callbox works with";
           }
-          d.internal = { ...(d.internal || {}), leadSource: pc?.leadSource || "" };
+          d.internal = { extraFacts: d.internal?.extraFacts || [], leadSource: pc?.leadSource || "" };
         });
         firstWon = prof.relationship?.firstWon ?? null;
         const kept: string[] = [];
@@ -300,7 +300,7 @@ export default function DataImport({
       }
     }
 
-    if (dropped.size) lines.push(`Left out to stay within ${MAX_FACTS} facts: ${[...dropped].join(", ")}.`);
+    if (dropped.size) lines.push(`Not shown, to stay within ${MAX_FACTS} facts (the AI still uses them): ${[...dropped].join(", ")}.`);
     if (pulledNumbers) {
       lines.push("The AI is now drafting the empty sections from this data.");
       onImported?.();

@@ -60,7 +60,7 @@ export type RevampCaseStudy = {
   methodologyNote: string;
   gate: { enabled: boolean; teaserUntil: "situation" | "channels" | "primaryContact"; formIndustryLabel: string };
   // Import context for the AI drafter only: never rendered, never sent to the CMS.
-  internal: { leadSource: string };
+  internal: { leadSource: string; extraFacts: { label: string; value: string }[] };
 };
 
 // The JSON shape Gemini is asked to fill. Kept next to the type so they change together.
@@ -173,7 +173,10 @@ export function normalizeRevamp(p: any): RevampCaseStudy {
     },
     methodologyNote: s(p.methodologyNote),
     gate: { enabled: true, teaserUntil: "channels", formIndustryLabel: s(p.gate?.formIndustryLabel) },
-    internal: { leadSource: s(p.internal?.leadSource) },
+    internal: {
+      leadSource: s(p.internal?.leadSource),
+      extraFacts: arr(p.internal?.extraFacts, (x) => ({ label: s(x?.label), value: s(x?.value) }), (x) => Boolean(x.label && x.value)).slice(0, 12),
+    },
   };
 }
 
@@ -273,7 +276,7 @@ export const MAX_FACTS = 8;
 export function mergeFacts(
   current: RevampCaseStudy["facts"],
   incoming: RevampCaseStudy["facts"],
-): { facts: RevampCaseStudy["facts"]; dropped: string[] } {
+): { facts: RevampCaseStudy["facts"]; dropped: string[]; droppedFacts: RevampCaseStudy["facts"] } {
   const key = (l: string) => l.trim().toLowerCase();
   const rank = (l: string) => {
     const i = IMPORTED_FACT_ORDER.indexOf(key(l));
@@ -288,7 +291,22 @@ export function mergeFacts(
   return {
     facts: [...imported.slice(0, room), ...writer],
     dropped: imported.slice(room).map((f) => f.label),
+    droppedFacts: imported.slice(room),
   };
+}
+
+// Applies imported facts to a sheet. Facts that don't fit the display limit are kept in
+// internal.extraFacts, so the AI drafter still sees them (e.g. "List sources": without it the
+// draft claimed every list was built by Callbox). Returns the labels left off the display.
+export function applyImportedFacts(d: RevampCaseStudy, incoming: RevampCaseStudy["facts"]): string[] {
+  const key = (l: string) => l.trim().toLowerCase();
+  const m = mergeFacts(d.facts, incoming);
+  d.facts = m.facts;
+  const shown = new Set(d.facts.map((f) => key(f.label)));
+  const extra = new Map<string, { label: string; value: string }>();
+  for (const f of [...(d.internal?.extraFacts || []), ...m.droppedFacts]) if (!shown.has(key(f.label))) extra.set(key(f.label), f);
+  d.internal = { leadSource: d.internal?.leadSource || "", extraFacts: [...extra.values()] };
+  return m.dropped;
 }
 
 // Sections that render in the PDF/page, in order. Empty optional sections are hidden and the
