@@ -6,10 +6,13 @@
 // Ranking every candidate takes one get_hubspot_report call per client (~14s each in practice,
 // ~370 candidates), far more than one Vercel function can do in 60s. So the work is split:
 //   plan   -> the candidate list (one list_team_leaders call), cached per cycle
-//   batch  -> one slice of candidates measured, cached per cycle and slice
-//   final  -> all slices ranked and named via HubSpot, cached per cycle once complete
-// The browser drives the batches (like the CallboxOne import). The first visitor after 08:00 PH
-// waits a few minutes; everyone after that reads the cache.
+//   batch  -> one slice of candidates measured, cached per cycle and slice once complete
+//   final  -> the collected results ranked and named via HubSpot, cached per cycle once complete
+// The browser drives the batches (like the CallboxOne import) and sends the results to final.
+// The first visitor after 08:00 PH waits a few minutes; everyone after that reads the cache.
+//
+// Every request must finish inside Vercel's 60s: a batch stops at a hard deadline, abandons calls
+// still running, and returns what it has (not cached, so it can be retried).
 
 import { unstable_cache } from "next/cache";
 import { startFromCampaignCode, withCallboxOne } from "@/lib/callboxone";
@@ -37,7 +40,7 @@ export type TopClient = {
 };
 
 export type TopClientsPlan = { cycle: string; nextRefresh: string; candidates: number; batches: number };
-export type TopClientsBatch = { index: number; size: number; checked: number; rows: MeasuredRow[] };
+export type TopClientsBatch = { index: number; size: number; checked: number; partial: boolean; rows: MeasuredRow[] };
 export type TopClientsPayload = {
   cycle: string;
   refreshedAt: string;
@@ -59,9 +62,9 @@ const MAX_DAYS = 24 * 30.44; // older "active" campaigns are almost always dorma
 const TEST = /\btest\b|\[test\]|programmer test|sandbox|dummy/i;
 // CallboxOne often stores the offer as the client name ("1Q26 Callbox - AI Readiness Accelerator").
 const OFFER_LABEL = /\bcallbox\b|^\s*\d?\s*[qh]\d\s?\d{2}\b/i;
-export const BATCH_SIZE = 24;
-const BATCH_BUDGET_MS = 48_000;
-const CONCURRENCY = 8;
+export const BATCH_SIZE = 12;
+const BATCH_DEADLINE_MS = 42_000; // after this, calls still running are abandoned
+const CONCURRENCY = 6;
 const TOP = 5;
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -128,9 +131,18 @@ export async function getPlan(): Promise<TopClientsPlan> {
 
 /* ---------------------------------- batch ---------------------------------- */
 
-// Measures one slice: sales-qualified appointments in the last 30 days, per client.
+class PartialBatch extends Error {
+  batch: TopClientsBatch;
+  constructor(batch: TopClientsBatch) {
+    super("partial batch");
+    this.batch = batch;
+  }
+}
+
+// Measures one slice: sales-qualified appointments in the last 30 days, per client. Stops at a hard
+// deadline so the request always answers in time; a partial slice throws (so it isn't cached).
 async function measureBatch(index: number): Promise<TopClientsBatch> {
-  const t0 = Date.now();
+  const deadline = Date.now() + BATCH_DEADLINE_MS;
   const all = await getCandidates();
   const slice = all.slice(index * BATCH_SIZE, (index + 1) * BATCH_SIZE);
   const now = new Date();
@@ -138,40 +150,59 @@ async function measureBatch(index: number): Promise<TopClientsBatch> {
   const to = iso(now);
   const rows: MeasuredRow[] = [];
   let checked = 0;
+  const TIMEOUT = Symbol("timeout");
+  const beforeDeadline = <T>(p: Promise<T>): Promise<T | typeof TIMEOUT> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stop = new Promise<typeof TIMEOUT>((resolve) => {
+      timer = setTimeout(() => resolve(TIMEOUT), Math.max(0, deadline - Date.now()));
+    });
+    return Promise.race([p, stop]).finally(() => clearTimeout(timer));
+  };
+
   await withCallboxOne(async (call) => {
     let next = 0;
     const worker = async () => {
-      while (next < slice.length && Date.now() - t0 < BATCH_BUDGET_MS) {
+      while (next < slice.length && Date.now() < deadline) {
         const c = slice[next++];
+        let r: any;
         try {
-          const r = await call("get_hubspot_report", { clientId: c.clientId, from, to });
-          const cv = r?.metrics?.conversions || {};
-          const camp = r?.timezone?.campaign || {};
-          rows.push({
-            ...c,
-            // The report names the client's campaign it measured: prefer it for the import.
-            clientAccountId: Number(camp.clientAccountId) || c.clientAccountId,
-            campaignName: camp.campaignName ? String(camp.campaignName) : c.campaignName,
-            teamLeader: camp.teamLeader ? String(camp.teamLeader) : c.teamLeader,
-            timezone: camp.timezone ? String(camp.timezone) : r?.timezone?.timezone ? String(r.timezone.timezone) : null,
-            sql: num(cv.sqlTotal),
-            conv: num(cv.total),
-            top: num(cv.sqlLinkedIn) > num(cv.sqlCalling) ? "LinkedIn" : num(cv.sqlCalling) > 0 ? "Voice" : "",
-          });
-          checked += 1;
+          r = await beforeDeadline(call("get_hubspot_report", { clientId: c.clientId, from, to }));
         } catch {
-          checked += 1; // a client whose report fails counts as checked with no result
+          checked += 1; // a client whose report fails counts as checked, with no result
+          continue;
         }
+        if (r === TIMEOUT) return;
+        const cv = r?.metrics?.conversions || {};
+        const camp = r?.timezone?.campaign || {};
+        rows.push({
+          ...c,
+          // The report names the client's campaign it measured: prefer it for the import.
+          clientAccountId: Number(camp.clientAccountId) || c.clientAccountId,
+          campaignName: camp.campaignName ? String(camp.campaignName) : c.campaignName,
+          teamLeader: camp.teamLeader ? String(camp.teamLeader) : c.teamLeader,
+          timezone: camp.timezone ? String(camp.timezone) : r?.timezone?.timezone ? String(r.timezone.timezone) : null,
+          sql: num(cv.sqlTotal),
+          conv: num(cv.total),
+          top: num(cv.sqlLinkedIn) > num(cv.sqlCalling) ? "LinkedIn" : num(cv.sqlCalling) > 0 ? "Voice" : "",
+        });
+        checked += 1;
       }
     };
     await Promise.all(Array.from({ length: CONCURRENCY }, worker));
   });
   // Only clients with appointments matter for the ranking; the rest stay out of the payload.
-  return { index, size: slice.length, checked, rows: rows.filter((x) => x.sql > 0) };
+  const batch = { index, size: slice.length, checked, partial: checked < slice.length, rows: rows.filter((x) => x.sql > 0) };
+  if (batch.partial) throw new PartialBatch(batch);
+  return batch;
 }
 
-export function getBatch(index: number): Promise<TopClientsBatch> {
-  return cached(() => measureBatch(index), ["batch", String(index)]);
+export async function getBatch(index: number): Promise<TopClientsBatch> {
+  try {
+    return await cached(() => measureBatch(index), ["batch", String(index)]);
+  } catch (e) {
+    if (e instanceof PartialBatch) return e.batch;
+    throw e;
+  }
 }
 
 /* ---------------------------------- final ---------------------------------- */
@@ -192,22 +223,35 @@ async function companyFor(c: CandidateRow): Promise<ClientCandidate | null> {
   return null;
 }
 
-class Incomplete extends Error {
-  payload: TopClientsPayload;
-  constructor(payload: TopClientsPayload) {
-    super("incomplete");
-    this.payload = payload;
-  }
+// Rows arrive from the browser (collected from the batch responses), so they are re-checked.
+export function sanitizeRows(v: unknown): MeasuredRow[] {
+  const str = (x: unknown, max: number) => (typeof x === "string" ? x.slice(0, max) : "");
+  const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) && x >= 0 ? x : 0);
+  return (Array.isArray(v) ? v : []).slice(0, 600).flatMap((r: any) => {
+    const clientId = n(r?.clientId);
+    const startIso = typeof r?.startIso === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.startIso) ? r.startIso : "";
+    if (!clientId || !startIso) return [];
+    const row: MeasuredRow = {
+      clientId,
+      clientAccountId: n(r?.clientAccountId),
+      campaignName: str(r?.campaignName, 80),
+      clientName: str(r?.clientName, 200),
+      teamLeader: str(r?.teamLeader, 120) || null,
+      start: typeof r?.start === "string" && /^\d{4}-\d{2}$/.test(r.start) ? r.start : null,
+      timezone: str(r?.timezone, 60) || null,
+      startIso,
+      sql: n(r?.sql),
+      conv: n(r?.conv),
+      top: r?.top === "Voice" || r?.top === "LinkedIn" ? r.top : "",
+    };
+    return [row];
+  });
 }
 
-async function buildFinal(): Promise<TopClientsPayload> {
+async function buildFinal(rows: MeasuredRow[], measured: number, complete: boolean): Promise<TopClientsPayload> {
   const now = new Date();
   const plan = await getPlan();
-  const batches = await Promise.all(Array.from({ length: plan.batches }, (_, i) => getBatch(i).catch(() => null)));
-  const measured = batches.reduce((t, b) => t + (b?.checked ?? 0), 0);
-  const ranked = batches
-    .flatMap((b) => b?.rows ?? [])
-    .sort((a, b) => b.sql - a.sql || b.conv - a.conv);
+  const ranked = rows.filter((r) => r.sql > 0).sort((a, b) => b.sql - a.sql || b.conv - a.conv);
 
   // Company name and domain from HubSpot; the same company twice (e.g. several Netrix campaigns
   // under different client ids) is listed once.
@@ -239,26 +283,20 @@ async function buildFinal(): Promise<TopClientsPayload> {
     });
   });
 
-  const payload: TopClientsPayload = {
+  return {
     cycle: plan.cycle,
     refreshedAt: now.toISOString(),
     nextRefresh: plan.nextRefresh,
     candidates: plan.candidates,
-    measured,
-    complete: batches.every(Boolean) && measured >= plan.candidates,
+    measured: Math.min(measured, plan.candidates),
+    complete,
     skippedUnnamed,
     clients,
   };
-  // An incomplete list (a batch failed) is returned but not cached, so the next visit retries.
-  if (!batches.every(Boolean)) throw new Incomplete(payload);
-  return payload;
 }
 
-export async function getFinal(): Promise<TopClientsPayload> {
-  try {
-    return await cached(buildFinal, ["final"]);
-  } catch (e) {
-    if (e instanceof Incomplete) return e.payload;
-    throw e;
-  }
+// A complete list is cached for the day (the first complete one wins; later visitors' rows come
+// from the same cached batches). An incomplete list is computed but not cached.
+export function getFinal(rows: MeasuredRow[], measured: number, complete: boolean): Promise<TopClientsPayload> {
+  return complete ? cached(() => buildFinal(rows, measured, true), ["final"]) : buildFinal(rows, measured, false);
 }
