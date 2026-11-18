@@ -26,6 +26,7 @@ export type Campaign = {
   start: string | null;
   timezone?: string | null;
 };
+export type ImportSource = { key: string; client: Client | null; campaign: Campaign | null; stored: StoredImport | null };
 export type Client = { companyId: string; name: string; domain: string; location: string; deals: number; firstDeal: string | null };
 type Facts = RevampCaseStudy["facts"];
 
@@ -162,14 +163,18 @@ export default function DataImport({
   sheet,
   onClose,
   onImported,
-  onImportKey,
+  onSource,
+  onLoadSaved,
 }: {
   up: (fn: (d: RevampCaseStudy) => void) => void;
   sheet: Pick<RevampCaseStudy, "facts" | "clientName" | "country" | "solutionLines" | "primaryContact">;
   onClose: () => void;
   onImported?: () => void;
   // The saved-import key of the data now on the sheet, so a CMS draft can be linked to it.
-  onImportKey?: (key: string | null) => void;
+  // Where the data on the sheet came from, so the editor can autosave the sheet to that client.
+  onSource?: (src: ImportSource) => void;
+  // A client with a saved sheet: the editor restores the sheet itself (text, review state).
+  onLoadSaved?: (r: RecentClient) => void;
 }) {
   const sheetRef = useRef(sheet);
   sheetRef.current = sheet;
@@ -350,7 +355,9 @@ export default function DataImport({
         .catch(() => key);
       loadRecent();
     }
-    if (profUsed || resUsed) onImportKey?.(key);
+    if (profUsed || resUsed) {
+      onSource?.({ key: key || recentKey(campaign?.clientAccountId, client?.companyId), client, campaign, stored: stored ?? { hubspot: profUsed, callboxone: resUsed } });
+    }
     if (pulledNumbers) {
       lines.push("The AI is now drafting the empty sections from this data.");
       onImported?.();
@@ -362,7 +369,36 @@ export default function DataImport({
 
   // Quick pick: the client and campaign are already known, so they are selected and imported
   // right away, without a search.
-  const pickTop = (c: TopClient) => {
+  // A saved sheet (someone already drafted or reviewed this client) is restored as is: no new
+  // HubSpot, CallboxOne or AI calls, except the AI filling fields that are still empty.
+  const loadSaved = (r: RecentClient) => {
+    setQ(r.name);
+    setClients(r.company ? [r.company] : []);
+    setCampaigns(r.campaign ? [r.campaign] : []);
+    setClient(r.company);
+    setCampaign(r.campaign);
+    setSrcErr({});
+    setSearched(true);
+    setErr(false);
+    setMsgs([
+      `Loaded the ${r.sheet!.reviewed ? "reviewed" : "draft"} case study saved ${ago(r.sheet!.savedAt)}: no new HubSpot, CallboxOne or AI calls (the AI only fills fields that are still empty). Search the client to start over with fresh numbers.`,
+    ]);
+    onLoadSaved?.(r);
+  };
+
+  const pickTop = async (c: TopClient) => {
+    // A saved sheet for this client, from the list or (if it has scrolled off) looked up directly.
+    const key = recentKey(c.campaign.clientAccountId, c.company?.companyId);
+    let saved = recent.find((r) => r.key === key);
+    if (!saved && onLoadSaved) {
+      setBusy("import");
+      saved = await fetch(`/api/recent-clients?key=${encodeURIComponent(key)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => j?.entry ?? undefined)
+        .catch(() => undefined);
+      setBusy("");
+    }
+    if (saved?.sheet && onLoadSaved) return loadSaved(saved);
     setQ(c.name);
     setClients(c.company ? [c.company] : []);
     setCampaigns([c.campaign]);
@@ -375,6 +411,7 @@ export default function DataImport({
 
   // A recent import: load what was saved, without new calls.
   const pickRecent = (r: RecentClient) => {
+    if (r.sheet && onLoadSaved) return loadSaved(r);
     setQ(r.name);
     setClients(r.company ? [r.company] : []);
     setCampaigns(r.campaign ? [r.campaign] : []);

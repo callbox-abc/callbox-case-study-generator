@@ -226,7 +226,7 @@ export function RecentClients({
     <div style={{ marginTop: 14 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap", marginBottom: 8 }}>
         <b style={{ color: "#f5f5f7" }}>Recently imported clients</b>
-        <span style={muted}>· imported by anyone using this app · click one to load the saved data (no new calls)</span>
+        <span style={muted}>· by anyone using this app · click one to load its saved sheet (no new calls)</span>
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {recent.map((r) => (
@@ -265,7 +265,13 @@ export function RecentClients({
               <span style={{ minWidth: 0 }}>
                 <span style={{ display: "block", fontSize: 12.5, fontWeight: 700 }}>{r.name}</span>
                 <span style={{ display: "block", ...muted, fontSize: 11 }}>
-                  {[r.campaign?.campaignName, `imported ${ago(r.importedAt)}`, r.imports > 1 ? `${r.imports} imports` : ""].filter(Boolean).join(" · ")}
+                  {[
+                    r.campaign?.campaignName,
+                    r.sheet ? `${r.sheet.reviewed ? "reviewed" : "draft saved"} ${ago(r.sheet.savedAt)}` : `imported ${ago(r.importedAt)}`,
+                    r.imports > 1 ? `${r.imports} imports` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </span>
               </span>
             </button>
