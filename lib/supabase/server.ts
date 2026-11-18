@@ -18,8 +18,10 @@ export function createClient() {
 // Server-only client with the service role key, for tables that hold client data and have no
 // public policies (daily_snapshots). Never import this from a client component.
 export function createServiceClient() {
-  const url = process.env.SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  // The Vercel Marketplace integration sets NEXT_PUBLIC_SUPABASE_URL (same value), and Supabase's
+  // newer SUPABASE_SECRET_KEY works where the legacy service role key is turned off.
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
   if (!url || !serviceKey) return null;
   return createSupabaseClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 }
