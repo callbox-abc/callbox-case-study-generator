@@ -98,19 +98,21 @@ export default function Page() {
     cs.heroStats.length > 0 || cs.channels.rows.length > 0 || cs.progression.quarters.length > 0 || Boolean(sourceText.trim());
   const canDraft = aiState === "drafting" || (hasDraftData && pendingFields(cs).size > 0);
 
-  // Autosave: the sheet of an imported client is saved to its shared entry 3s after the last change
-  // (text, edits, review state), so loading that client again restores it instead of re-drafting.
+  // Saving the sheet of a pulled client to its shared entry is deliberate: the Save button, Mark as
+  // reviewed, Send to CMS, or the save prompt on exit / client switch. An accidental edit never
+  // overwrites the copy a colleague reviewed. (The raw import is still saved right after a pull.)
   const aiDraftedRef = useRef(aiDrafted);
   aiDraftedRef.current = aiDrafted;
   const saveFingerprint = (sheet: RevampCaseStudy, reviewed: boolean) => JSON.stringify(sheet) + (reviewed ? "|r" : "");
-  useEffect(() => {
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "error">("idle");
+  const saveSheetNow = async (): Promise<boolean> => {
     const src = importSourceRef.current;
-    if (stage !== "edit" || !src || aiState === "drafting") return;
-    const timer = setTimeout(() => {
-      const fingerprint = saveFingerprint(csRef.current, reviewedRef.current);
-      if (fingerprint === lastSavedRef.current) return;
-      lastSavedRef.current = fingerprint;
-      fetch("/api/recent-clients?step=sheet", {
+    if (!src) return true;
+    const fingerprint = saveFingerprint(csRef.current, reviewedRef.current);
+    if (fingerprint === lastSavedRef.current) return true;
+    setSaveState("saving");
+    try {
+      const r = await fetch("/api/recent-clients?step=sheet", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -122,10 +124,113 @@ export default function Page() {
           campaign: src.campaign,
           stored: src.stored,
         }),
-      }).catch(() => {});
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, [cs, aiState, aiDrafted, stage]);
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      lastSavedRef.current = fingerprint;
+      setSaveState("idle");
+      return true;
+    } catch {
+      setSaveState("error");
+      return false;
+    }
+  };
+  // Unsaved: the sheet belongs to a pulled client and differs from what was last saved (a fresh
+  // pull, AI text, edits, or a review). Blank, template and document sheets never count.
+  const isDirty = () => Boolean(importSourceRef.current) && saveFingerprint(csRef.current, reviewedRef.current) !== lastSavedRef.current;
+  const dirty = stage === "edit" && Boolean(importSourceRef.current) && saveFingerprint(cs, reviewedRef.current) !== lastSavedRef.current;
+
+  // The save prompt (exit or client switch), answered through a promise.
+  type SaveChoice = "save" | "discard" | "cancel";
+  const [saveAsk, setSaveAsk] = useState<{ kind: "exit" | "switch"; name: string; resolve: (c: SaveChoice) => void } | null>(null);
+  const askToSave = (kind: "exit" | "switch") =>
+    new Promise<SaveChoice>((resolve) => {
+      const src = importSourceRef.current;
+      const name = csRef.current.clientName.trim() || src?.client?.name || src?.campaign?.campaignName || "this client";
+      setSaveAsk({ kind, name, resolve });
+    });
+  const answerSave = (c: SaveChoice) => {
+    saveAsk?.resolve(c);
+    setSaveAsk(null);
+  };
+
+  // Leaving the editor (Start over or the browser's Back button) asks first when there are unsaved
+  // changes. Back is kept inside the app: it acts like Start over instead of leaving the page.
+  const skipPopRef = useRef(false);
+  const exitToStart = () => {
+    if (typeof window !== "undefined" && window.history.state?.csg === "edit") {
+      skipPopRef.current = true;
+      window.history.back(); // drop the history entry the editor added
+    }
+    importSourceRef.current = null; // the sheet is left behind: nothing to warn about any more
+    lastSavedRef.current = "";
+    setSaveState("idle");
+    saveMappingExample();
+    setStage("upload");
+  };
+  const requestExit = async () => {
+    if (isDirty()) {
+      const choice = await askToSave("exit");
+      if (choice === "cancel") return;
+      if (choice === "save" && !(await saveSheetNow())) return; // save failed: stay (the Save button shows it)
+    }
+    exitToStart();
+  };
+  const requestExitRef = useRef(requestExit);
+  requestExitRef.current = requestExit;
+  useEffect(() => {
+    if (stage !== "edit") return;
+    if (window.history.state?.csg !== "edit") window.history.pushState({ csg: "edit" }, "");
+    const onPop = () => {
+      if (skipPopRef.current) {
+        skipPopRef.current = false;
+        return;
+      }
+      window.history.pushState({ csg: "edit" }, ""); // stay until the user decides
+      void requestExitRef.current();
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [stage]);
+  // Closing or reloading the tab: browsers only allow their own generic "Leave site?" warning.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!isDirty()) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Before another client is loaded into the sheet: offer to save the current one, then start that
+  // client from a clean sheet (importing only fills empty fields, so the old client's name, country
+  // and text would otherwise stay mixed in).
+  const prepareSwitch = async (next: { clientAccountId?: number | null; companyId?: string | null }): Promise<"same" | "switched" | false> => {
+    const cur = importSourceRef.current;
+    if (!cur) return "same";
+    const same =
+      (next.clientAccountId && cur.campaign?.clientAccountId === next.clientAccountId) ||
+      (next.companyId && cur.client?.companyId === next.companyId);
+    if (same) return "same";
+    if (isDirty()) {
+      const choice = await askToSave("switch");
+      if (choice === "cancel") return false;
+      if (choice === "save" && !(await saveSheetNow())) return false;
+    }
+    resetAi();
+    setCs(EMPTY_REVAMP);
+    setNotice("");
+    importSourceRef.current = null;
+    reviewedRef.current = false;
+    lastSavedRef.current = "";
+    cmsPageIdRef.current = null; // a new client gets its own CMS draft
+    setCmsState("idle");
+    setCmsMsg("");
+    setCmsLink("");
+    setSaveState("idle");
+    return "switched";
+  };
 
   // Restores a saved sheet as is. Unreviewed AI fields get their banner back; the AI only fills
   // fields that are still empty.
@@ -422,6 +527,7 @@ export default function Page() {
       if (!draftRes.ok) throw new Error(draftJson.error || "Could not create the draft.");
 
       cmsPageIdRef.current = draftJson.id;
+      void saveSheetNow(); // what went to the CMS is what the shared copy should hold
       // Show the draft next to the client in "Recently imported clients", so nobody makes a second one.
       if (importSourceRef.current) {
         fetch("/api/recent-clients?step=draft", {
@@ -726,10 +832,7 @@ export default function Page() {
       >
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <button
-            onClick={() => {
-              saveMappingExample();
-              setStage("upload");
-            }}
+            onClick={() => void requestExit()}
             style={{ ...btnGhost, padding: "7px 14px", fontSize: 12 }}
           >
             ← Start over
@@ -740,6 +843,23 @@ export default function Page() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          {importSourceRef.current && (
+            <button
+              onClick={() => void saveSheetNow()}
+              disabled={(!dirty && saveState !== "error") || saveState === "saving"}
+              title="Saves this sheet to the client's shared copy, the one everyone loads from Recently imported clients"
+              style={{
+                ...btnGhost,
+                padding: "8px 16px",
+                fontSize: 12,
+                opacity: dirty || saveState === "error" ? 1 : 0.6,
+                ...(dirty ? { borderColor: YELLOW, color: YELLOW } : {}),
+                ...(saveState === "error" ? { borderColor: "#7f1d1d", color: "#fca5a5" } : {}),
+              }}
+            >
+              {saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed, retry" : dirty ? "Save" : "Saved"}
+            </button>
+          )}
           <button onClick={() => copyText(revampPlainText(cs), setCopied, "cpAll")} style={{ ...btnGhost, padding: "8px 16px", fontSize: 12 }}>
             {copied === "cpAll" ? "✓ Copied" : "Copy text"}
           </button>
@@ -780,8 +900,11 @@ export default function Page() {
             reviewedRef.current = false;
           }}
           onLoadSaved={loadSaved}
+          prepareSwitch={prepareSwitch}
         />
       )}
+
+      {saveAsk && <SavePrompt kind={saveAsk.kind} name={saveAsk.name} onChoose={answerSave} />}
 
       {aiState !== "idle" && (
         <div
@@ -806,6 +929,7 @@ export default function Page() {
                   setAiState("idle");
                   setAiDrafted([]);
                   reviewedRef.current = true; // saved with the sheet, so the next person sees it reviewed
+                  void saveSheetNow();
                 }}
                 style={{ ...btnGhost, padding: "6px 12px", fontSize: 12 }}
               >
@@ -910,6 +1034,67 @@ export default function Page() {
           </div>
           {/* Inside the sheet's column (.app-shell is a flex row), outside .pdf-page. */}
           <DevKeynote />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// "Save before exit?" / "Save before switching?": three choices, Save is the default.
+function SavePrompt({ kind, name, onChoose }: { kind: "exit" | "switch"; name: string; onChoose: (c: "save" | "discard" | "cancel") => void }) {
+  const primary = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    primary.current?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onChoose("cancel");
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onChoose]);
+  const ghost: React.CSSProperties = {
+    padding: "9px 16px",
+    borderRadius: 6,
+    border: "1px solid " + BORDER_STRONG,
+    background: "transparent",
+    color: TEXT,
+    fontSize: 13,
+    cursor: "pointer",
+  };
+  return (
+    <div
+      className="app-toolbar"
+      role="presentation"
+      onClick={() => onChoose("cancel")}
+      style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.6)", display: "grid", placeItems: "center", padding: 16 }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="save-prompt-title"
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: "100%", maxWidth: 460, padding: 22, borderRadius: 12, border: "1px solid " + BORDER_STRONG, background: CARD_BG, color: TEXT, boxShadow: "0 12px 48px rgba(0,0,0,0.5)" }}
+      >
+        <b id="save-prompt-title" style={{ fontSize: 16 }}>
+          {kind === "exit" ? "Save before exit?" : `Save ${name} first?`}
+        </b>
+        <p style={{ color: MUTED, fontSize: 13, lineHeight: 1.55, margin: "10px 0 18px" }}>
+          {kind === "exit"
+            ? `Your changes to ${name} aren't saved yet.`
+            : `You're loading another client, and your changes to ${name} aren't saved yet.`}{" "}
+          Saving updates the shared copy everyone loads from Recently imported clients.
+        </p>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
+          <button onClick={() => onChoose("cancel")} style={ghost}>
+            Cancel
+          </button>
+          <button onClick={() => onChoose("discard")} style={ghost}>
+            {kind === "exit" ? "Exit without saving" : "Don't save"}
+          </button>
+          <button
+            ref={primary}
+            onClick={() => onChoose("save")}
+            style={{ ...ghost, border: "1px solid " + YELLOW, background: YELLOW, color: YELLOW_INK, fontWeight: 700 }}
+          >
+            {kind === "exit" ? "Save and exit" : "Save and continue"}
+          </button>
         </div>
       </div>
     </div>
