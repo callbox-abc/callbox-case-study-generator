@@ -7,7 +7,8 @@ import { copyText } from "@/lib/types";
 import { RevampCaseStudy, EMPTY_REVAMP, normalizeRevamp, revampPlainText } from "@/lib/revamp";
 import { applyDrafted, pendingFields } from "@/lib/narrative";
 import RevampSheet, { C as SHEET } from "@/components/revamp/RevampSheet";
-import DataImport from "@/components/revamp/DataImport";
+import DataImport, { type ImportSource } from "@/components/revamp/DataImport";
+import type { RecentClient } from "@/lib/recentClients";
 import { readTemplateDocx } from "@/lib/templateParse";
 import { TEMPLATE_FILE } from "@/lib/templateSchema";
 
@@ -65,7 +66,10 @@ export default function Page() {
   const [cmsLink, setCmsLink] = useState("");
   const cmsPageIdRef = useRef<number | null>(null);
   // The saved import (shared "Recently imported clients") the sheet's data came from, if any.
-  const importKeyRef = useRef<string | null>(null);
+  const importSourceRef = useRef<ImportSource | null>(null);
+  // Whether the AI text on the sheet was marked as reviewed (saved with the sheet).
+  const reviewedRef = useRef(false);
+  const lastSavedRef = useRef("");
   const [showImport, setShowImport] = useState(false);
 
   // "Fill empty fields with AI": fills only EMPTY narrative fields from the sheet's own data.
@@ -93,6 +97,57 @@ export default function Page() {
   const hasDraftData =
     cs.heroStats.length > 0 || cs.channels.rows.length > 0 || cs.progression.quarters.length > 0 || Boolean(sourceText.trim());
   const canDraft = aiState === "drafting" || (hasDraftData && pendingFields(cs).size > 0);
+
+  // Autosave: the sheet of an imported client is saved to its shared entry 3s after the last change
+  // (text, edits, review state), so loading that client again restores it instead of re-drafting.
+  const aiDraftedRef = useRef(aiDrafted);
+  aiDraftedRef.current = aiDrafted;
+  const saveFingerprint = (sheet: RevampCaseStudy, reviewed: boolean) => JSON.stringify(sheet) + (reviewed ? "|r" : "");
+  useEffect(() => {
+    const src = importSourceRef.current;
+    if (stage !== "edit" || !src || aiState === "drafting") return;
+    const timer = setTimeout(() => {
+      const fingerprint = saveFingerprint(csRef.current, reviewedRef.current);
+      if (fingerprint === lastSavedRef.current) return;
+      lastSavedRef.current = fingerprint;
+      fetch("/api/recent-clients?step=sheet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: src.key,
+          sheet: csRef.current,
+          reviewed: reviewedRef.current,
+          aiDrafted: reviewedRef.current ? [] : aiDraftedRef.current,
+          client: src.client,
+          campaign: src.campaign,
+          stored: src.stored,
+        }),
+      }).catch(() => {});
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [cs, aiState, aiDrafted, stage]);
+
+  // Restores a saved sheet as is. Unreviewed AI fields get their banner back; the AI only fills
+  // fields that are still empty.
+  const loadSaved = (r: RecentClient) => {
+    const saved = r.sheet;
+    if (!saved) return;
+    const sheet = normalizeRevamp(saved.data);
+    importSourceRef.current = { key: r.key, client: r.company, campaign: r.campaign, stored: r.stored };
+    reviewedRef.current = saved.reviewed;
+    lastSavedRef.current = saveFingerprint(sheet, saved.reviewed);
+    setCs(sheet);
+    if (!saved.reviewed && saved.aiDrafted.length) {
+      aiUsedRef.current = true;
+      setAiDrafted(saved.aiDrafted);
+      setAiMsg("Saved draft: its AI-written fields haven't been marked as reviewed yet. Review them before downloading or sending to the CMS.");
+      setAiState("done");
+    } else {
+      setAiDrafted([]);
+      setAiState("idle");
+    }
+    if (pendingFields(sheet).size > 0) requestAutoDraft();
+  };
 
   const draftWithAi = async (auto = false) => {
     if (draftingRef.current) {
@@ -138,7 +193,10 @@ export default function Page() {
       // Apply only to fields that are still empty, so edits made meanwhile are kept.
       setCs((prev) => applyDrafted(prev, normalizeRevamp(json.sheet), keys));
       const drafted: string[] = json.drafted || [];
-      if (drafted.length) aiUsedRef.current = true;
+      if (drafted.length) {
+        aiUsedRef.current = true;
+        reviewedRef.current = false; // new AI text needs a review
+      }
       setAiDrafted((prev) => Array.from(new Set([...prev, ...drafted])));
       const dropped = Number(json.droppedSentences) || 0;
       // Show what the checks removed and why, so an empty heading or item is explainable.
@@ -268,7 +326,9 @@ export default function Page() {
   };
 
   const startBlank = () => {
-    importKeyRef.current = null;
+    importSourceRef.current = null;
+    reviewedRef.current = false;
+    lastSavedRef.current = "";
     setNotice("");
     resetAi();
     setCs(EMPTY_REVAMP);
@@ -363,11 +423,11 @@ export default function Page() {
 
       cmsPageIdRef.current = draftJson.id;
       // Show the draft next to the client in "Recently imported clients", so nobody makes a second one.
-      if (importKeyRef.current) {
+      if (importSourceRef.current) {
         fetch("/api/recent-clients?step=draft", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ key: importKeyRef.current, id: draftJson.id, editLink: draftJson.editLink }),
+          body: JSON.stringify({ key: importSourceRef.current.key, id: draftJson.id, editLink: draftJson.editLink }),
         }).catch(() => {});
       }
       setCmsLink(draftJson.editLink);
@@ -715,7 +775,11 @@ export default function Page() {
           sheet={cs}
           onClose={() => setShowImport(false)}
           onImported={requestAutoDraft}
-          onImportKey={(k) => (importKeyRef.current = k)}
+          onSource={(src) => {
+            importSourceRef.current = src;
+            reviewedRef.current = false;
+          }}
+          onLoadSaved={loadSaved}
         />
       )}
 
@@ -741,6 +805,7 @@ export default function Page() {
                 onClick={() => {
                   setAiState("idle");
                   setAiDrafted([]);
+                  reviewedRef.current = true; // saved with the sheet, so the next person sees it reviewed
                 }}
                 style={{ ...btnGhost, padding: "6px 12px", fontSize: 12 }}
               >

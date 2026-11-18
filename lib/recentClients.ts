@@ -4,6 +4,7 @@
 // pulling it again. The app has one shared login, so entries show when, not who.
 
 import type { ClientCandidate } from "@/lib/hubspot";
+import { normalizeRevamp, type RevampCaseStudy } from "@/lib/revamp";
 import { recentKey } from "@/lib/recentKey";
 import { createServiceClient } from "@/lib/supabase/server";
 import type { StoredImport, TopCampaign } from "@/lib/topClients";
@@ -18,6 +19,16 @@ export type RecentClient = {
   importedAt: string;
   imports: number; // live imports of this client so far
   cmsDraft: { id: number; editLink: string; at: string } | null;
+  // The finished sheet (AI text, edits, review state), saved as people work on this client, so
+  // loading it again restores their text instead of drafting it anew.
+  sheet?: SavedSheet | null;
+};
+
+export type SavedSheet = {
+  data: RevampCaseStudy;
+  reviewed: boolean; // someone clicked "Mark as reviewed" on it
+  aiDrafted: string[]; // AI-written fields not reviewed yet (empty once reviewed)
+  savedAt: string;
 };
 
 const TABLE = "app_cache";
@@ -42,6 +53,14 @@ export async function listRecent(): Promise<RecentClient[]> {
     .limit(LIST_SIZE);
   if (error) throw new Error(`Supabase: ${error.message}`);
   return (data || []).map((r) => r.payload as RecentClient);
+}
+
+// One client's entry, wherever it is in the list (the list only shows the latest few).
+export async function getRecent(key: string): Promise<RecentClient | null> {
+  if (!key.startsWith(PREFIX)) return null;
+  const { data, error } = await db().from(TABLE).select("payload").eq("key", key).maybeSingle();
+  if (error) throw new Error(`Supabase: ${error.message}`);
+  return (data?.payload as RecentClient) ?? null;
 }
 
 /* --------------------------- input checks (from the browser) --------------------------- */
@@ -105,6 +124,7 @@ export async function saveRecent(body: any): Promise<string | null> {
     importedAt: new Date().toISOString(),
     imports: (before?.imports ?? 0) + 1,
     cmsDraft: before?.cmsDraft ?? null,
+    sheet: null, // new numbers: the next draft and edits save a new sheet
   };
   const now = new Date().toISOString();
   const { error } = await db().from(TABLE).upsert({ key, cycle: now.slice(0, 10), status: "saved", payload: entry, updated_at: now });
@@ -114,6 +134,42 @@ export async function saveRecent(body: any): Promise<string | null> {
   const cutoff = new Date(Date.now() - KEEP_DAYS * 864e5).toISOString();
   await db().from(TABLE).delete().like("key", `${PREFIX}%`).lt("updated_at", cutoff);
   return key;
+}
+
+// Saves the sheet being worked on for this client. A client loaded from the weekly snapshot has
+// no entry yet, so one is created from the snapshot's import data.
+export async function saveSheet(body: any): Promise<void> {
+  if (JSON.stringify(body ?? {}).length > MAX_BYTES) throw new Error("Sheet too large to save.");
+  const key = String(body?.key || "");
+  if (!key.startsWith(PREFIX)) throw new Error("Invalid key.");
+  const sheet: SavedSheet = {
+    data: normalizeRevamp(body?.sheet),
+    reviewed: body?.reviewed === true,
+    aiDrafted: Array.isArray(body?.aiDrafted) ? body.aiDrafted.map((x: unknown) => str(x, 60)).filter(Boolean).slice(0, 60) : [],
+    savedAt: new Date().toISOString(),
+  };
+  const { data: prev } = await db().from(TABLE).select("payload").eq("key", key).maybeSingle();
+  let entry = prev?.payload as RecentClient | undefined;
+  if (!entry) {
+    const campaign = cleanCampaign(body?.campaign);
+    const company = cleanCompany(body?.client);
+    const stored = cleanStored(body?.stored?.hubspot, body?.stored?.callboxone);
+    if (key !== recentKey(campaign?.clientAccountId, company?.companyId)) throw new Error("Key does not match the client.");
+    entry = {
+      key,
+      name: company?.name || stored.hubspot?.company?.name || campaign?.clientName || sheet.data.clientName || "Unknown client",
+      domain: company?.domain || stored.hubspot?.company?.domain || "",
+      campaign,
+      company,
+      stored,
+      importedAt: sheet.savedAt,
+      imports: 0, // loaded from the weekly snapshot, not pulled live
+      cmsDraft: null,
+    };
+  }
+  entry.sheet = sheet;
+  const { error } = await db().from(TABLE).upsert({ key, cycle: sheet.savedAt.slice(0, 10), status: "saved", payload: entry, updated_at: sheet.savedAt });
+  if (error) throw new Error(`Supabase: ${error.message}`);
 }
 
 // Records that a CMS draft was created from this client's import.
