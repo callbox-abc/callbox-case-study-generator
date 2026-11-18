@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Upload, FileText } from "lucide-react";
+import { ArrowRight, Database, Download, FilePlus, FileText, Upload } from "lucide-react";
 import { extractFromFile } from "@/lib/extract";
 import { copyText } from "@/lib/types";
 import { RevampCaseStudy, EMPTY_REVAMP, normalizeRevamp, revampPlainText } from "@/lib/revamp";
@@ -400,6 +400,38 @@ export default function Page() {
     fontSize: 13,
     fontWeight: 700,
   };
+  // Start screen option tiles, largest first: live data, document, blank sheet, template.
+  const tile: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 16,
+    width: "100%",
+    boxSizing: "border-box",
+    textAlign: "left",
+    borderRadius: 12,
+    cursor: "pointer",
+    font: "inherit",
+  };
+  const tileGhost: React.CSSProperties = {
+    ...tile,
+    alignItems: "flex-start",
+    padding: "22px 20px",
+    minHeight: 120,
+    border: "1px solid " + BORDER_STRONG,
+    background: SHEET_BG,
+    color: TEXT,
+  };
+  const tileIcon: React.CSSProperties = {
+    width: 48,
+    height: 48,
+    flex: "0 0 auto",
+    borderRadius: "50%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "rgba(255,255,255,0.06)",
+    color: TEXT,
+  };
   const btnGhost: React.CSSProperties = {
     padding: "10px 20px",
     borderRadius: 6,
@@ -414,17 +446,41 @@ export default function Page() {
   if (stage === "upload") {
     return (
       <div style={{ minHeight: "100vh", background: BG, color: TEXT }}>
-        <div style={{ maxWidth: 640, margin: "0 auto", padding: "72px 20px" }}>
-          <div style={{ textAlign: "center", marginBottom: 40 }}>
-            <Wordmark size={26} />
+        <div style={{ maxWidth: 720, margin: "0 auto", padding: "64px 20px" }}>
+          <div style={{ textAlign: "center", marginBottom: 32 }}>
+            <div style={{ display: "flex", justifyContent: "center" }}>
+              <Wordmark size={26} />
+            </div>
             <h1 style={{ fontSize: 28, fontWeight: 800, margin: "22px 0 8px", letterSpacing: -0.3 }}>
               Case Study Generator
             </h1>
             <p style={{ fontSize: 14, color: MUTED, margin: 0, lineHeight: 1.6 }}>
-              Upload a draft document and we&apos;ll map it into the revamped Callbox case study layout.
+              Build a Callbox case study from live client data, a draft document, or a blank sheet.
             </p>
           </div>
 
+          {/* 1. Primary: live client data */}
+          <button
+            onClick={() => {
+              startBlank();
+              setShowImport(true);
+            }}
+            style={{ ...tile, padding: "26px 24px", border: "none", background: YELLOW, color: YELLOW_INK }}
+          >
+            <span style={{ ...tileIcon, background: "rgba(23,24,28,0.12)" }}>
+              <Database size={24} />
+            </span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: "block", fontSize: 19, fontWeight: 800 }}>Start from HubSpot + CallboxOne</span>
+              <span style={{ display: "block", fontSize: 13.5, lineHeight: 1.5, marginTop: 4, opacity: 0.8 }}>
+                Pick one of today&apos;s most active clients or search any client. Numbers come from CallboxOne, client
+                facts from HubSpot, and the AI drafts the text.
+              </span>
+            </span>
+            <ArrowRight size={22} style={{ flex: "0 0 auto" }} />
+          </button>
+
+          {/* 2. Drop a document */}
           <div
             onDragOver={(e) => {
               e.preventDefault();
@@ -433,34 +489,28 @@ export default function Page() {
             onDragLeave={() => setDragOver(false)}
             onDrop={onDrop}
             onClick={() => fileRef.current?.click()}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && fileRef.current?.click()}
             style={{
-              padding: "48px 24px",
-              borderRadius: 12,
+              ...tile,
+              marginTop: 14,
+              padding: "26px 24px",
               border: "2px dashed " + (dragOver ? YELLOW : BORDER_STRONG),
               background: dragOver ? "rgba(245,185,20,0.06)" : SHEET_BG,
-              textAlign: "center",
-              cursor: "pointer",
+              color: TEXT,
               transition: "border-color 0.15s, background 0.15s",
             }}
           >
-            <div
-              style={{
-                width: 52,
-                height: 52,
-                borderRadius: "50%",
-                background: "rgba(245,185,20,0.12)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                margin: "0 auto 14px",
-              }}
-            >
-              <Upload size={22} style={{ color: YELLOW }} />
-            </div>
-            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>
-              Drop a .docx or .pdf here, or click to browse
-            </div>
-            <div style={{ fontSize: 12, color: MUTED }}>We&apos;ll extract the content and map it to the template</div>
+            <span style={{ ...tileIcon, background: "rgba(245,185,20,0.12)", color: YELLOW }}>
+              <Upload size={24} />
+            </span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: "block", fontSize: 17, fontWeight: 700 }}>Drop a document</span>
+              <span style={{ display: "block", fontSize: 13.5, lineHeight: 1.5, marginTop: 4, color: MUTED }}>
+                A .docx or .pdf draft, or a filled Case Study Template. Drop it here or click to browse.
+              </span>
+            </span>
             <input
               ref={fileRef}
               type="file"
@@ -486,42 +536,31 @@ export default function Page() {
             </div>
           )}
 
-          <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "24px 0" }}>
-            <div style={{ flex: 1, height: 1, background: BORDER }} />
-            <span style={{ fontSize: 12, color: MUTED }}>or</span>
-            <div style={{ flex: 1, height: 1, background: BORDER }} />
-          </div>
-
-          <div style={{ marginBottom: 18 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 6, color: MUTED }}>
-              Download Case Study Template
-            </label>
-            <p style={{ fontSize: 13, color: MUTED, margin: "0 0 10px", lineHeight: 1.6 }}>
-              A Word file with every field labeled, section by section. Fill in what you know, then upload it above:
-              each box goes straight into its field, word for word, so nothing gets lost or reworded.
-            </p>
-            <a
-              href={`/${TEMPLATE_FILE}`}
-              download
-              style={{ ...btnPrimary, display: "block", width: "100%", textAlign: "center", textDecoration: "none", boxSizing: "border-box" }}
-            >
-              Download Case Study Template (.docx)
+          {/* 3. Blank sheet   4. Template */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14, marginTop: 14 }}>
+            <button onClick={startBlank} style={tileGhost}>
+              <span style={{ ...tileIcon, width: 44, height: 44 }}>
+                <FilePlus size={21} />
+              </span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: 16, fontWeight: 700 }}>Start with a blank case study</span>
+                <span style={{ display: "block", fontSize: 13, lineHeight: 1.5, marginTop: 4, color: MUTED }}>
+                  Fill in every field yourself in the editor.
+                </span>
+              </span>
+            </button>
+            <a href={`/${TEMPLATE_FILE}`} download style={{ ...tileGhost, textDecoration: "none" }}>
+              <span style={{ ...tileIcon, width: 44, height: 44 }}>
+                <Download size={21} />
+              </span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: 16, fontWeight: 700 }}>Download Case Study Template</span>
+                <span style={{ display: "block", fontSize: 13, lineHeight: 1.5, marginTop: 4, color: MUTED }}>
+                  A Word file with every field labeled. Fill it in, then drop it above: each box goes straight into its
+                  field, word for word.
+                </span>
+              </span>
             </a>
-          </div>
-
-          <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-            <button style={btnGhost} onClick={startBlank}>
-              Start with a blank case study
-            </button>
-            <button
-              style={{ ...btnGhost, borderColor: YELLOW, color: YELLOW }}
-              onClick={() => {
-                startBlank();
-                setShowImport(true);
-              }}
-            >
-              Start from HubSpot + CallboxOne data
-            </button>
           </div>
         </div>
       </div>
