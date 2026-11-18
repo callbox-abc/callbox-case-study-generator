@@ -335,10 +335,17 @@ export default function Page() {
       cmsPageIdRef.current = draftJson.id;
       setCmsLink(draftJson.editLink);
       const missing: string[] = draftJson.missingAcfKeys || [];
+      const parent = draftJson.parent || {};
+      const where =
+        parent.status === "set"
+          ? ` Placed under “${parent.title}”.`
+          : parent.status === "notFound"
+            ? " No parent page was set: the success stories page wasn't found, so set the parent in WordPress."
+            : "";
       setCmsMsg(
-        missing.length
-          ? `Draft #${draftJson.id} saved, but these fields were not stored: ${missing.join(", ")}`
-          : `Draft #${draftJson.id} saved. Review it in WordPress before publishing.`
+        (missing.length
+          ? `Draft #${draftJson.id} saved, but these fields were not stored: ${missing.join(", ")}.`
+          : `Draft #${draftJson.id} saved. Review it in WordPress before publishing.`) + where
       );
       setCmsState("done");
       saveMappingExample();
