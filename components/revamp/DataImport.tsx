@@ -246,7 +246,8 @@ export default function DataImport({
   // Where the data on the sheet came from, so the editor can autosave the sheet to that client.
   onSource?: (src: ImportSource) => void;
   // A client with a saved sheet: the editor restores the sheet itself (text, review state).
-  onLoadSaved?: (r: RecentClient) => void;
+  // Returns false when the saved sheet can't be used; the panel then loads the saved data instead.
+  onLoadSaved?: (r: RecentClient) => boolean | void;
   // Before another client is loaded: the editor may ask to save the current one and clears the
   // sheet ("switched"), or the user cancels (false).
   prepareSwitch?: (next: { clientAccountId?: number | null; companyId?: string | null }) => Promise<"same" | "switched" | false>;
@@ -473,7 +474,8 @@ export default function DataImport({
     setMsgs([
       `Loaded the ${r.sheet!.reviewed ? "reviewed" : "draft"} case study saved ${ago(r.sheet!.savedAt)}: no new HubSpot, CallboxOne or AI calls (the AI only fills fields that are still empty). Search the client to start over with fresh numbers.`,
     ]);
-    onLoadSaved?.(r);
+    // A saved sheet that belongs to another client is refused by the editor: use the saved data.
+    if (onLoadSaved?.(r) === false) run(r.company, r.campaign, r.stored, `the import saved ${ago(r.importedAt)}`);
   };
 
   const pickTop = async (c: TopClient) => {
