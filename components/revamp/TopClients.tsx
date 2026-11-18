@@ -68,22 +68,74 @@ const dayLabel = (iso: string) =>
 
 /* --------------------------------- weekly picks --------------------------------- */
 
+const POLL_MS = 15_000;
+
+// Whole-job progress: checking clients 0-85%, choosing the top 5 to 88%, saving their data to 100%.
+function jobPercent(job: JobStatus): number {
+  if (job.phase === "rank") return job.candidates ? Math.max(2, Math.round((job.measured / job.candidates) * 85)) : 2;
+  if (job.phase === "select") return 86;
+  if (job.phase === "import") return 88 + Math.round((job.imported / Math.max(1, job.picks)) * 12);
+  return 100;
+}
+
+function jobStage(job: JobStatus): string {
+  if (job.phase === "rank")
+    return job.candidates ? `checking clients: ${job.measured} of ${job.candidates}` : "loading the client list";
+  if (job.phase === "select") return "choosing the top 5";
+  if (job.phase === "import") return `saving the top 5's data: ${job.imported} of ${job.picks || 5}`;
+  return "publishing";
+}
+
+function JobProgress({ job, first }: { job: JobStatus; first: boolean }) {
+  const pct = jobPercent(job);
+  return (
+    <div style={{ marginTop: 10 }} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Weekly snapshot progress">
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", ...muted }}>
+        <span>
+          {first ? "Building the first weekly snapshot" : "Updating this week's snapshot (last week's list is shown until it's done)"}
+          {" · "}
+          {jobStage(job)}
+        </span>
+        <b style={{ color: "#f5f5f7" }}>{pct}%</b>
+      </div>
+      <div style={{ marginTop: 6, height: 6, borderRadius: 3, background: "#191a1e", overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%", borderRadius: 3, background: YELLOW, transition: "width 0.8s ease" }} />
+      </div>
+      {job.lastError && <div style={{ ...muted, marginTop: 4, color: "#fca5a5" }}>Last error: {job.lastError}</div>}
+    </div>
+  );
+}
+
 export function TopClients({ onPick, disabled }: { onPick: (c: TopClient) => void; disabled?: boolean }) {
   const [data, setData] = useState<{ snapshot: TopClientsSnapshot | null; job: JobStatus | null } | null>(null);
   const [error, setError] = useState("");
 
+  // While the weekly job runs, the saved progress is re-read every 15s so the bar moves on its own.
+  // This only reads Supabase; it never calls CallboxOne or HubSpot.
   useEffect(() => {
     let alive = true;
-    fetch("/api/top-clients")
-      .then(async (r) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let loaded = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/top-clients");
         const json = await r.json().catch(() => null);
         if (!r.ok || !json) throw new Error(json?.error || `HTTP ${r.status}`);
-        return json;
-      })
-      .then((json) => alive && setData(json))
-      .catch((e) => alive && setError(e?.message || "Could not load the clients snapshot."));
+        if (!alive) return;
+        loaded = true;
+        setData(json);
+        setError("");
+        if (json.job?.status === "running") timer = setTimeout(load, POLL_MS);
+      } catch (e: any) {
+        if (!alive) return;
+        if (!loaded) setError(e?.message || "Could not load the clients snapshot.");
+        else timer = setTimeout(load, POLL_MS * 2); // keep showing the last good data and try again
+      }
+    };
+    load();
     return () => {
       alive = false;
+      clearTimeout(timer);
     };
   }, []);
 
@@ -133,22 +185,21 @@ export function TopClients({ onPick, disabled }: { onPick: (c: TopClient) => voi
         ))}
       </div>
 
+      {running && job && <JobProgress job={job} first={!snap} />}
+
       <div style={{ ...muted, marginTop: 6 }}>
         {!data
           ? "Loading this week's clients…"
           : !snap
             ? running
-              ? `The first weekly snapshot is being built (${job!.measured} of ${job!.candidates || "…"} clients checked${
-                  job!.phase === "import" ? ", now saving the top 5" : ""
-                }). Check back in a few minutes.${job!.lastError ? ` Last error: ${job!.lastError}` : ""}`
+              ? "The 5 cards appear when the snapshot is ready; this panel updates on its own."
               : job?.status === "failed"
                 ? `This week's snapshot failed${job.lastError ? `: ${job.lastError}` : "."} It runs again Monday at 8:00 AM PH.`
                 : "No snapshot yet. It's built every Monday at 8:00 AM PH."
             : [
                 `Snapshot from ${dayLabel(snap.refreshedAt)} · ranked ${snap.measured} of ${snap.candidates} clients`,
                 snap.skippedUnnamed ? `${snap.skippedUnnamed} skipped (no company name in CallboxOne or HubSpot)` : "",
-                stale && running ? `this week's update is running (${job!.measured} of ${job!.candidates || "…"} checked)` : "",
-                stale && job?.lastError ? `last error: ${job.lastError}` : "",
+                stale && job?.lastError && !running ? `last error: ${job.lastError}` : "",
                 stale && job?.status === "failed" ? "this week's update failed, so last week's list is shown" : "",
                 `next update ${dayLabel(snap.nextRefresh)}, 8:00 AM PH`,
               ]
