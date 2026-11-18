@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { currentCycle, isStalled } from "@/lib/topClients";
+import { isStalled, jobCycle } from "@/lib/topClients";
 import { cronAuthorized, stepAndContinue } from "@/lib/cronJob";
 
 // Mondays every 10 minutes, 00:00-02:59 UTC (vercel.json): continues this week's job only if its
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   if (!cronAuthorized(req)) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  const cycle = currentCycle();
+  const cycle = jobCycle();
   try {
     if (!(await isStalled(cycle))) return NextResponse.json({ cycle, skipped: "Nothing to resume." });
     return await stepAndContinue(req, cycle);
