@@ -10,12 +10,12 @@
 //  - One AI draft at the end, with both sources on the sheet.
 // Narrative text is never touched; client name and country are filled only when empty.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MAX_FACTS, applyImportedFacts, mergeFacts, type RevampCaseStudy } from "@/lib/revamp";
 import type { StoredImport, TopClient } from "@/lib/topClients";
 import type { RecentClient } from "@/lib/recentClients";
 import { recentKey } from "@/lib/recentKey";
-import { LogoCredit, RecentClients, TopClients, ago } from "@/components/revamp/TopClients";
+import { Logo, LogoCredit, RecentClients, TopClients, ago } from "@/components/revamp/TopClients";
 
 export type Campaign = {
   clientId: number;
@@ -158,6 +158,77 @@ function Column({ title, hint, error, empty, children }: { title: string; hint: 
   );
 }
 
+// Asked before pulling a client live when it is already saved (recent searches): the cached data
+// (or reviewed sheet) can be used as is, or replaced with fresh data for everyone.
+function CachedPrompt({
+  entry,
+  onCached,
+  onLive,
+  onClose,
+}: {
+  entry: RecentClient;
+  onCached: () => void;
+  onLive: () => void;
+  onClose: () => void;
+}) {
+  const primary = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    primary.current?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const name = entry.campaign?.campaignName || entry.name;
+  const saved = entry.sheet
+    ? `${entry.sheet.reviewed ? "a reviewed" : "a draft"} case study, saved ${ago(entry.sheet.savedAt)}`
+    : `the imported data, saved ${ago(entry.importedAt)}`;
+  return (
+    <div
+      role="presentation"
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.6)", display: "grid", placeItems: "center", padding: 16 }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cached-prompt-title"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%",
+          maxWidth: 480,
+          padding: 22,
+          borderRadius: 12,
+          border: "1px solid rgba(255,255,255,0.14)",
+          background: "#232429",
+          color: "#f5f5f7",
+          boxShadow: "0 12px 48px rgba(0,0,0,0.5)",
+          fontSize: 13,
+        }}
+      >
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <Logo name={entry.name} domain={entry.domain} />
+          <b id="cached-prompt-title" style={{ fontSize: 15, lineHeight: 1.35 }}>
+            {name} was already in recent search. Do you want to override the data?
+          </b>
+        </div>
+        <p style={{ color: "#a4a4ae", lineHeight: 1.55, margin: "12px 0 18px" }}>
+          Saved: {saved}
+          {entry.cmsDraft ? `, with CMS draft #${entry.cmsDraft.id}` : ""}. Fetching live data pulls fresh numbers from HubSpot and
+          CallboxOne and replaces the saved data{entry.sheet ? " and sheet" : ""} for everyone.
+        </p>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
+          <button onClick={onLive} style={btn}>
+            Fetch Live Data
+          </button>
+          <button ref={primary} onClick={onCached} style={{ ...btn, background: YELLOW, borderColor: YELLOW, color: "#17181c", fontWeight: 700 }}>
+            Use Cached data
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DataImport({
   up,
   sheet,
@@ -192,6 +263,9 @@ export default function DataImport({
   const [err, setErr] = useState(false);
   // Clients anyone imported recently (shared): quick picks and "already imported" badges.
   const [recent, setRecent] = useState<RecentClient[]>([]);
+  // A live pull was asked for a client that is already saved: ask first.
+  const [prompt, setPrompt] = useState<{ cached: RecentClient; client: Client | null; campaign: Campaign | null } | null>(null);
+  const closePrompt = useCallback(() => setPrompt(null), []);
   const loadRecent = () =>
     fetch("/api/recent-clients")
       .then((r) => (r.ok ? r.json() : null))
@@ -244,6 +318,12 @@ export default function DataImport({
     setSrcErr(errs);
     setSearched(true);
     setBusy("");
+    const preClient = hs.length === 1 ? hs[0] : null;
+    const preCampaign = cb.length === 1 ? cb[0] : null;
+    if (preClient || preCampaign) {
+      const cached = await findCached(preClient, preCampaign);
+      if (cached) setPrompt({ cached, client: preClient, campaign: preCampaign });
+    }
   };
 
   const selected = { client, campaign };
@@ -422,6 +502,32 @@ export default function DataImport({
     run(r.company, r.campaign, r.stored, `the import saved ${ago(r.importedAt)}`);
   };
 
+  // The saved entry for a selection: matched on the campaign (its CallboxOne numbers are the costly
+  // part), else on the HubSpot company; from the list, or looked up directly if it scrolled off.
+  const findCached = async (cl: Client | null, ca: Campaign | null): Promise<RecentClient | undefined> => {
+    const inList = recent.find((r) =>
+      ca ? r.campaign?.clientAccountId === ca.clientAccountId : Boolean(cl && r.company?.companyId === cl.companyId)
+    );
+    if (inList) return inList;
+    const key = recentKey(ca?.clientAccountId, cl?.companyId);
+    return fetch(`/api/recent-clients?key=${encodeURIComponent(key)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => j?.entry ?? undefined)
+      .catch(() => undefined);
+  };
+
+  // The Import button: a selection that is already saved asks before pulling live.
+  const requestImport = async () => {
+    const cl = client;
+    const ca = campaign;
+    if (!cl && !ca) return;
+    setBusy("import");
+    const cached = await findCached(cl, ca);
+    setBusy("");
+    if (cached) setPrompt({ cached, client: cl, campaign: ca });
+    else run(cl, ca);
+  };
+
   // "Already imported" badges for search results.
   const savedFor = (companyId?: string, clientAccountId?: number) =>
     recent.find((r) => (companyId && r.company?.companyId === companyId) || (clientAccountId && r.campaign?.clientAccountId === clientAccountId));
@@ -432,6 +538,22 @@ export default function DataImport({
 
   return (
     <div className="app-toolbar" style={box}>
+      {prompt && (
+        <CachedPrompt
+          entry={prompt.cached}
+          onClose={closePrompt}
+          onCached={() => {
+            const r = prompt.cached;
+            setPrompt(null);
+            pickRecent(r);
+          }}
+          onLive={() => {
+            const { client: cl, campaign: ca } = prompt;
+            setPrompt(null);
+            run(cl, ca);
+          }}
+        />
+      )}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <b style={{ color: "#f5f5f7" }}>Import client data</b>
         <input
@@ -500,7 +622,7 @@ export default function DataImport({
 
       {searched && (clients.length > 0 || campaigns.length > 0) && (
         <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <button style={{ ...btn, borderColor: YELLOW, color: YELLOW, opacity: what ? 1 : 0.5 }} onClick={() => run()} disabled={busy !== "" || !what}>
+          <button style={{ ...btn, borderColor: YELLOW, color: YELLOW, opacity: what ? 1 : 0.5 }} onClick={requestImport} disabled={busy !== "" || !what}>
             {busy === "import" ? "Importing…" : what ? `Import ${what}` : "Select a row to import"}
           </button>
           <span style={muted}>Click a row to select or unselect it. Single matches are preselected.</span>
