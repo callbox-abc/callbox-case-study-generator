@@ -3,7 +3,8 @@
 // Quick picks in the import panel: today's 5 most active clients (60+ days running, ranked by
 // sales-qualified appointments in the last 30 days), refreshed daily at 08:00 PH.
 // The browser drives the cached steps (plan -> batches -> final). The first visit after 08:00 PH
-// does the work, a few minutes once a day; later visits read the cache and load at once.
+// does the work (several minutes once a day, showing the most active found so far as it goes);
+// later visits read the cache and load at once.
 // Logos come from BrandIcons; the Community plan requires the visible "Icons by BrandIcons" link.
 
 import { useEffect, useState } from "react";
@@ -58,8 +59,24 @@ async function getJson(url: string) {
   return json;
 }
 
+async function postFinal(rows: unknown[], measured: number, complete: boolean): Promise<TopClientsPayload> {
+  const r = await fetch("/api/top-clients?step=final", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rows, measured, complete }),
+  });
+  const json = await r.json().catch(() => null);
+  if (!r.ok || !json) throw new Error(json?.error || `HTTP ${r.status}`);
+  return json;
+}
+
+// While the daily check runs, the most active clients found so far are shown (named and with
+// logos via the same final step, uncached) and refreshed at most this often.
+const EARLY_EVERY_MS = 30_000;
+
 export default function TopClients({ onPick, disabled }: { onPick: (c: TopClient) => void; disabled?: boolean }) {
   const [data, setData] = useState<TopClientsPayload | null>(null);
+  const [finished, setFinished] = useState(false);
   const [progress, setProgress] = useState<{ checked: number; total: number } | null>(null);
   const [error, setError] = useState("");
 
@@ -72,11 +89,33 @@ export default function TopClients({ onPick, disabled }: { onPick: (c: TopClient
       // Batches are cached server-side once complete: on later visits they return at once.
       // A partial batch (it hit its deadline) is kept for now and retried once at the end.
       const done = new Map<number, { checked: number; partial: boolean; rows: unknown[] }>();
-      const report = () => {
+      const collected = () => {
         let checked = 0;
-        done.forEach((b) => (checked += b.checked));
-        if (alive) setProgress({ checked, total: plan.candidates });
+        const rows: unknown[] = [];
+        done.forEach((b) => {
+          checked += b.checked;
+          rows.push(...b.rows);
+        });
+        return { checked, rows };
       };
+
+      // Early results: the top clients among those checked so far.
+      let finishedRef = false;
+      let lastEarly = 0;
+      let earlyBusy = false;
+      let earlyRows = 0;
+      const showEarly = () => {
+        const { checked, rows } = collected();
+        if (earlyBusy || rows.length === earlyRows || Date.now() - lastEarly < EARLY_EVERY_MS) return;
+        earlyBusy = true;
+        lastEarly = Date.now();
+        earlyRows = rows.length;
+        postFinal(rows, checked, false)
+          .then((early) => alive && !finishedRef && setData(early))
+          .catch(() => {})
+          .finally(() => (earlyBusy = false));
+      };
+
       let failuresInARow = 0;
       const runBatch = async (i: number) => {
         if (failuresInARow >= 3) return; // CallboxOne is struggling: stop instead of piling on
@@ -87,7 +126,9 @@ export default function TopClients({ onPick, disabled }: { onPick: (c: TopClient
         } catch {
           failuresInARow += 1;
         }
-        report();
+        if (!alive) return;
+        setProgress({ checked: collected().checked, total: plan.candidates });
+        showEarly();
       };
       let next = 0;
       const worker = async () => {
@@ -99,28 +140,23 @@ export default function TopClients({ onPick, disabled }: { onPick: (c: TopClient
       if (!alive) return;
       if (failuresInARow >= 3 && done.size === 0) throw new Error("CallboxOne is not answering right now. Try again later.");
 
-      let checked = 0;
-      const rows: unknown[] = [];
-      done.forEach((b) => {
-        checked += b.checked;
-        rows.push(...b.rows);
-      });
+      const { checked, rows } = collected();
       const complete = done.size === plan.batches && [...done.values()].every((b) => !b.partial);
-      const r = await fetch("/api/top-clients?step=final", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows, measured: checked, complete }),
-      });
-      const final = await r.json().catch(() => null);
-      if (!r.ok || !final) throw new Error(final?.error || `HTTP ${r.status}`);
-      if (alive) setData(final);
+      const final = await postFinal(rows, checked, complete);
+      finishedRef = true;
+      if (alive) {
+        setData(final);
+        setFinished(true);
+      }
     })().catch((e) => alive && setError(e?.message || "Could not load today's clients."));
     return () => {
       alive = false;
     };
   }, []);
 
-  if (error) return <div style={{ ...muted, marginTop: 12 }}>Today&apos;s most active clients are unavailable: {error}</div>;
+  if (error && !data) return <div style={{ ...muted, marginTop: 12 }}>Today&apos;s most active clients are unavailable: {error}</div>;
+
+  const pct = progress && progress.total ? Math.min(100, Math.round((progress.checked / progress.total) * 100)) : 0;
 
   return (
     <div style={{ marginTop: 12 }}>
@@ -163,18 +199,29 @@ export default function TopClients({ onPick, disabled }: { onPick: (c: TopClient
         ))}
       </div>
 
+      {!finished && progress && (
+        <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: "#191a1e", overflow: "hidden" }} aria-hidden>
+          <div style={{ width: `${pct}%`, height: "100%", background: YELLOW, transition: "width 0.4s" }} />
+        </div>
+      )}
+
       <div style={{ ...muted, marginTop: 6, display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "space-between" }}>
         <span>
-          {!data
+          {!finished && error
+            ? `Stopped at ${progress?.checked ?? 0} of ${progress?.total ?? 0} clients: ${error} Showing the most active found before that.`
+            : !finished
             ? progress
-              ? `Checking today's clients: ${progress.checked} of ${progress.total}… The first check after 8:00 AM PH takes several minutes; you can search and import meanwhile.`
+              ? `Checking today's clients: ${progress.checked} of ${progress.total} (${pct}%). ` +
+                (data
+                  ? "Showing the most active found so far; the list updates as the check runs."
+                  : "The first check after 8:00 AM PH takes several minutes; you can search and import meanwhile.")
               : "Loading today's clients…"
-            : data.clients.length === 0
+            : data && data.clients.length === 0
               ? "No client with 60+ days running had appointments in the last 30 days."
-              : !data.complete
+              : data && !data.complete
                 ? `Ranked ${data.measured} of ${data.candidates} clients; the rest could not be checked today.`
-                : `Ranked all ${data.measured} clients.`}
-          {data && data.skippedUnnamed > 0
+                : `Ranked all ${data?.measured ?? 0} clients.`}
+          {finished && data && data.skippedUnnamed > 0
             ? ` ${data.skippedUnnamed} skipped: CallboxOne only has an offer name for them and HubSpot has no matching company.`
             : ""}
         </span>
