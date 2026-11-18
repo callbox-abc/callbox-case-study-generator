@@ -68,7 +68,7 @@ export default function Page() {
   const importKeyRef = useRef<string | null>(null);
   const [showImport, setShowImport] = useState(false);
 
-  // "Draft missing text with AI": fills only EMPTY narrative fields from the sheet's own data.
+  // "Fill empty fields with AI": fills only EMPTY narrative fields from the sheet's own data.
   // The server drops any sentence whose numbers are not in the data (lib/narrative.ts).
   // It runs automatically after a document is mapped or CallboxOne data is imported, and the
   // fields being drafted show skeletons until the result arrives.
@@ -85,6 +85,14 @@ export default function Page() {
   const aiUsedRef = useRef(false);
   const [autoDraftTick, setAutoDraftTick] = useState(0);
   const requestAutoDraft = () => setAutoDraftTick((t) => t + 1);
+
+  // The AI usually drafts on its own after an import or a mapped document, so its button only shows
+  // once the sheet has data to draft from (the drafting route's own test: hero stats, channel rows
+  // or periods, or a source document) and a field is still empty: to redraft a cleared field, retry
+  // after a timeout, or draft a template or hand-filled sheet.
+  const hasDraftData =
+    cs.heroStats.length > 0 || cs.channels.rows.length > 0 || cs.progression.quarters.length > 0 || Boolean(sourceText.trim());
+  const canDraft = aiState === "drafting" || (hasDraftData && pendingFields(cs).size > 0);
 
   const draftWithAi = async (auto = false) => {
     if (draftingRef.current) {
@@ -117,7 +125,7 @@ export default function Page() {
       } catch {
         throw new Error(
           res.status === 504 || /an error occurred/i.test(text)
-            ? "The AI took too long to answer. Use “Draft missing text with AI” to try again."
+            ? "The AI took too long to answer. Use “Fill empty fields with AI” to try again."
             : `Server error (HTTP ${res.status}).`
         );
       }
@@ -678,13 +686,16 @@ export default function Page() {
           <button onClick={() => setShowImport((v) => !v)} style={{ ...btnGhost, padding: "8px 16px", fontSize: 12 }}>
             {showImport ? "Hide import" : "Import data"}
           </button>
-          <button
-            onClick={() => draftWithAi(false)}
-            disabled={aiState === "drafting"}
-            style={{ ...btnGhost, padding: "8px 16px", fontSize: 12, borderColor: YELLOW, color: YELLOW, opacity: aiState === "drafting" ? 0.6 : 1 }}
-          >
-            {aiState === "drafting" ? "Drafting…" : "Draft missing text with AI"}
-          </button>
+          {canDraft && (
+            <button
+              onClick={() => draftWithAi(false)}
+              disabled={aiState === "drafting"}
+              title="Fills only the empty text fields, from the sheet's own data. Clear a field to have it redrafted."
+              style={{ ...btnGhost, padding: "8px 16px", fontSize: 12, opacity: aiState === "drafting" ? 0.6 : 1 }}
+            >
+              {aiState === "drafting" ? "Drafting…" : "Fill empty fields with AI"}
+            </button>
+          )}
           <button
             onClick={sendToCms}
             disabled={cmsState === "sending"}
@@ -832,7 +843,41 @@ export default function Page() {
             <RevampSheet r={cs} up={up} pending={pending} />
             <Footer />
           </div>
+          {/* Inside the sheet's column (.app-shell is a flex row), outside .pdf-page. */}
+          <DevKeynote />
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Developer keynote under the sheet: editor only. The .app-toolbar/.no-print classes keep it out of
+// the PDF, and it is not part of the sheet data, so it never reaches the CMS. Build date and commit
+// are set at build time (next.config.js).
+function DevKeynote() {
+  const date = process.env.NEXT_PUBLIC_APP_BUILD_DATE || "";
+  const commit = process.env.NEXT_PUBLIC_APP_COMMIT || "local";
+  return (
+    <div
+      className="app-toolbar no-print"
+      style={{
+        maxWidth: 900,
+        margin: "28px auto 0",
+        padding: "16px 20px 0",
+        borderTop: "1px solid " + BORDER,
+        textAlign: "center",
+        fontSize: 12,
+        lineHeight: 1.7,
+        color: MUTED,
+      }}
+    >
+      <div>
+        <b style={{ color: MUTED_LIGHT }}>Case Study Generator</b> · built and maintained by{" "}
+        <b style={{ color: MUTED_LIGHT }}>James Daniel Esmatao</b>, Web Developer &amp; Technical SEO Specialist
+      </div>
+      <div>Found a problem or have an idea? Message James.</div>
+      <div>
+        Version {date ? date.replace(/-/g, ".") : "dev"} ({commit})
       </div>
     </div>
   );
