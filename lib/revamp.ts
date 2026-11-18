@@ -257,6 +257,37 @@ export function toAcfPayload(r: RevampCaseStudy) {
 
 export const EMPTY_REVAMP: RevampCaseStudy = normalizeRevamp({});
 
+// Facts that imports own (HubSpot client facts, then CallboxOne program facts), in display order.
+export const IMPORTED_FACT_ORDER = [
+  "industry", "headquarters", "company size", "client since", "program growth",
+  "period measured", "market", "channels worked", "lists worked", "list sources",
+];
+export const MAX_FACTS = 8;
+
+// Merges imported facts into the sheet: an imported fact replaces the one with the same label,
+// imported facts sit in IMPORTED_FACT_ORDER, and facts the writer added stay after them. Over the
+// limit, the lowest-priority imported facts are left out (never the writer's); they are returned.
+export function mergeFacts(
+  current: RevampCaseStudy["facts"],
+  incoming: RevampCaseStudy["facts"],
+): { facts: RevampCaseStudy["facts"]; dropped: string[] } {
+  const key = (l: string) => l.trim().toLowerCase();
+  const rank = (l: string) => {
+    const i = IMPORTED_FACT_ORDER.indexOf(key(l));
+    return i === -1 ? Infinity : i;
+  };
+  const byLabel = new Map<string, { label: string; value: string }>();
+  for (const f of current) byLabel.set(key(f.label), f);
+  for (const f of incoming) byLabel.set(key(f.label), f);
+  const imported = [...byLabel.values()].filter((f) => rank(f.label) !== Infinity).sort((a, b) => rank(a.label) - rank(b.label));
+  const writer = current.filter((f) => rank(f.label) === Infinity);
+  const room = Math.max(0, MAX_FACTS - writer.length);
+  return {
+    facts: [...imported.slice(0, room), ...writer],
+    dropped: imported.slice(room).map((f) => f.label),
+  };
+}
+
 // Sections that render in the PDF/page, in order. Empty optional sections are hidden and the
 // remaining ones are renumbered, matching the WordPress template and the Next.js page.
 export type SectionId =

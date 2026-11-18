@@ -8,6 +8,7 @@ import { RevampCaseStudy, EMPTY_REVAMP, normalizeRevamp, revampPlainText } from 
 import { applyDrafted, pendingFields } from "@/lib/narrative";
 import RevampSheet, { C as SHEET } from "@/components/revamp/RevampSheet";
 import CallboxOneImport from "@/components/revamp/CallboxOneImport";
+import HubSpotImport from "@/components/revamp/HubSpotImport";
 
 // Palette lifted directly from Callbox's corporate case study PDF template.
 const BG = "#101114";
@@ -595,7 +596,7 @@ export default function Page() {
             {copied === "cpAll" ? "✓ Copied" : "Copy text"}
           </button>
           <button onClick={() => setShowImport((v) => !v)} style={{ ...btnGhost, padding: "8px 16px", fontSize: 12 }}>
-            {showImport ? "Hide CallboxOne import" : "Import from CallboxOne"}
+            {showImport ? "Hide import" : "Import data"}
           </button>
           <button
             onClick={() => draftWithAi(false)}
@@ -617,7 +618,12 @@ export default function Page() {
         </div>
       </div>
 
-      {showImport && <CallboxOneImport up={up} onClose={() => setShowImport(false)} onImported={requestAutoDraft} />}
+      {showImport && (
+        <>
+          <HubSpotImport up={up} sheet={cs} />
+          <CallboxOneImport up={up} facts={cs.facts} onClose={() => setShowImport(false)} onImported={requestAutoDraft} />
+        </>
+      )}
 
       {aiState !== "idle" && (
         <div
