@@ -1,8 +1,23 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "crons": [
-    { "path": "/api/cron/top-clients", "schedule": "0 0 * * 1" },
-    { "path": "/api/cron/top-clients/resume", "schedule": "*/10 0-2 * * 1" },
-    { "path": "/api/cron/keepalive", "schedule": "0 4 * * *" }
-  ]
+  "schedules": {
+    "top-clients-weekly": {
+      "schedule": "0 8 * * 1",
+      "timezone": "Asia/Manila",
+      "path": "/api/cron/top-clients",
+      "requestMethod": "GET"
+    },
+    "top-clients-resume": {
+      "schedule": "*/10 8-10 * * 1",
+      "timezone": "Asia/Manila",
+      "path": "/api/cron/top-clients/resume",
+      "requestMethod": "GET"
+    },
+    "supabase-keepalive": {
+      "schedule": "0 12 * * *",
+      "timezone": "Asia/Manila",
+      "path": "/api/cron/keepalive",
+      "requestMethod": "GET"
+    }
+  }
 }

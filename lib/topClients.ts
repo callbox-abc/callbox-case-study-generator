@@ -1,6 +1,6 @@
 // "Most active clients": a WEEKLY snapshot of the 5 CallboxOne clients with the most
 // sales-qualified appointments in the last 30 days (campaigns running 60 days to 24 months),
-// with each client's full import data. Built once a week by a Vercel Cron job, Mondays at
+// with each client's full import data. Built once a week by a Vercel Schedule, Mondays at
 // 08:00 PH (Monday 00:00 UTC), and stored in Supabase (app_cache). The import panel only
 // reads the snapshot: opening it or clicking a card never calls CallboxOne or HubSpot.
 //
@@ -117,6 +117,10 @@ export function currentCycle(now = new Date()): string {
   d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); // back to Monday
   return iso(d);
 }
+// The week a job run belongs to. Schedules can start a little off the exact minute (jitter), so a
+// run up to 30 minutes early still counts as the new week instead of finding last week's job done.
+export const jobCycle = (now = new Date()) => currentCycle(new Date(now.getTime() + 30 * 60_000));
+
 export const nextRefresh = (now = new Date()) => {
   const monday = new Date(`${currentCycle(now)}T00:00:00Z`);
   monday.setUTCDate(monday.getUTCDate() + 7);

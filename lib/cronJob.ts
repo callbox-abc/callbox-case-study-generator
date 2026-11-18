@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runStep } from "@/lib/topClients";
 
-// Only Vercel Cron (and the job itself) carry the secret: "Authorization: Bearer <CRON_SECRET>".
+// Only Vercel Schedules (and the job itself) carry the secret: "Authorization: Bearer <CRON_SECRET>".
 export const cronAuthorized = (req: NextRequest) => {
   const secret = process.env.CRON_SECRET;
   return Boolean(secret) && req.headers.get("authorization") === `Bearer ${secret}`;

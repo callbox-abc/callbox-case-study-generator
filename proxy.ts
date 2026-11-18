@@ -16,7 +16,7 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 export function proxy(req: NextRequest) {
-  // The weekly job is started by Vercel Cron, which can't log in: /api/cron/* gets through only
+  // The weekly job is started by a Vercel Schedule, which can't log in: /api/cron/* gets through only
   // with the CRON_SECRET bearer token (the route checks it again), and never with the shared login.
   if (req.nextUrl.pathname.startsWith("/api/cron/")) {
     const secret = process.env.CRON_SECRET;
