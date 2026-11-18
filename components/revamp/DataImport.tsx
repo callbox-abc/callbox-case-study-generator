@@ -10,8 +10,10 @@
 //  - One AI draft at the end, with both sources on the sheet.
 // Narrative text is never touched; client name and country are filled only when empty.
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { MAX_FACTS, applyImportedFacts, mergeFacts, type RevampCaseStudy } from "@/lib/revamp";
+import type { TopClient } from "@/lib/topClients";
+import TopClients from "@/components/revamp/TopClients";
 
 export type Campaign = {
   clientId: number;
@@ -158,25 +160,21 @@ export default function DataImport({
   sheet,
   onClose,
   onImported,
-  initial,
 }: {
   up: (fn: (d: RevampCaseStudy) => void) => void;
   sheet: Pick<RevampCaseStudy, "facts" | "clientName" | "country" | "solutionLines" | "primaryContact">;
   onClose: () => void;
   onImported?: () => void;
-  // A quick pick from the start screen: the client and campaign are already known, so they are
-  // preselected and (with autoImport) imported right away, without a search.
-  initial?: { q: string; client: Client | null; campaign: Campaign | null; autoImport?: boolean };
 }) {
   const sheetRef = useRef(sheet);
   sheetRef.current = sheet;
-  const [q, setQ] = useState(initial?.q ?? sheet.clientName);
+  const [q, setQ] = useState(sheet.clientName);
   const [start, setStart] = useState("");
-  const [clients, setClients] = useState<Client[]>(initial?.client ? [initial.client] : []);
-  const [campaigns, setCampaigns] = useState<Campaign[]>(initial?.campaign ? [initial.campaign] : []);
-  const [client, setClient] = useState<Client | null>(initial?.client ?? null);
-  const [campaign, setCampaign] = useState<Campaign | null>(initial?.campaign ?? null);
-  const [searched, setSearched] = useState(Boolean(initial?.client || initial?.campaign));
+  const [clients, setClients] = useState<Client[]>([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [client, setClient] = useState<Client | null>(null);
+  const [campaign, setCampaign] = useState<Campaign | null>(null);
+  const [searched, setSearched] = useState(false);
   const [srcErr, setSrcErr] = useState<{ hubspot?: string; callboxone?: string }>({});
   const [who, setWho] = useState<{ userName: string | null; globalClientScope: boolean } | null>(null);
   const [busy, setBusy] = useState<"" | "search" | "import">("");
@@ -228,7 +226,8 @@ export default function DataImport({
     setBusy("");
   };
 
-  const run = async () => {
+  const selected = { client, campaign };
+  const run = async (client: Client | null = selected.client, campaign: Campaign | null = selected.campaign) => {
     if (!client && !campaign) return;
     setBusy("import");
     setErr(false);
@@ -314,14 +313,18 @@ export default function DataImport({
     setBusy("");
   };
 
-  // Quick pick: import once on mount (the ref keeps React's dev double-mount from importing twice).
-  const autoRan = useRef(false);
-  useEffect(() => {
-    if (!initial?.autoImport || autoRan.current || !(initial.client || initial.campaign)) return;
-    autoRan.current = true;
-    run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Quick pick: the client and campaign are already known, so they are selected and imported
+  // right away, without a search.
+  const pickTop = (c: TopClient) => {
+    setQ(c.name);
+    setClients(c.company ? [c.company] : []);
+    setCampaigns([c.campaign]);
+    setClient(c.company);
+    setCampaign(c.campaign);
+    setSrcErr({});
+    setSearched(true);
+    run(c.company, c.campaign);
+  };
 
   const what = [client && "HubSpot", campaign && "CallboxOne"].filter(Boolean).join(" + ");
 
@@ -353,6 +356,8 @@ export default function DataImport({
           Close
         </button>
       </div>
+
+      <TopClients onPick={pickTop} disabled={busy !== ""} />
 
       {searched && (
         <div style={{ marginTop: 12, display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
@@ -389,7 +394,7 @@ export default function DataImport({
 
       {searched && (clients.length > 0 || campaigns.length > 0) && (
         <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <button style={{ ...btn, borderColor: YELLOW, color: YELLOW, opacity: what ? 1 : 0.5 }} onClick={run} disabled={busy !== "" || !what}>
+          <button style={{ ...btn, borderColor: YELLOW, color: YELLOW, opacity: what ? 1 : 0.5 }} onClick={() => run()} disabled={busy !== "" || !what}>
             {busy === "import" ? "Importing…" : what ? `Import ${what}` : "Select a row to import"}
           </button>
           <span style={muted}>Click a row to select or unselect it. Single matches are preselected.</span>
