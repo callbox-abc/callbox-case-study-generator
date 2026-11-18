@@ -7,6 +7,7 @@
 // Logos come from BrandIcons; the Community plan requires the visible "Icons by BrandIcons" link.
 
 import { useEffect, useState } from "react";
+import { Globe } from "lucide-react";
 import type { JobStatus, TopClient, TopClientsSnapshot } from "@/lib/topClients";
 import type { RecentClient } from "@/lib/recentClients";
 
@@ -28,21 +29,15 @@ const card: React.CSSProperties = {
 };
 const muted: React.CSSProperties = { color: "#a4a4ae", fontSize: 12, lineHeight: 1.45 };
 
-const initials = (name: string) =>
-  name
-    .split(/[^A-Za-z0-9]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0].toUpperCase())
-    .join("");
-
-export function Logo({ name, domain, size = 36 }: { name: string; domain: string; size?: number }) {
+// No website on record (or the logo didn't load): a globe placeholder in the same box.
+// `name` is kept in the props so the callers don't change.
+export function Logo({ domain, size = 36 }: { name: string; domain: string; size?: number }) {
   const [failed, setFailed] = useState(false);
   const box: React.CSSProperties = { width: size, height: size, borderRadius: 8, flex: "0 0 auto", background: "#232429" };
   if (!domain || !LOGO_KEY || failed) {
     return (
-      <div style={{ ...box, display: "grid", placeItems: "center", fontSize: size > 30 ? 12 : 10.5, fontWeight: 700, color: YELLOW }} aria-hidden>
-        {initials(name)}
+      <div style={{ ...box, display: "grid", placeItems: "center", color: "#a4a4ae" }} aria-hidden>
+        <Globe size={Math.round(size * 0.5)} strokeWidth={1.75} />
       </div>
     );
   }
