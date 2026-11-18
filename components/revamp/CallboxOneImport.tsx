@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import type { RevampCaseStudy } from "@/lib/revamp";
+import { useRef, useState } from "react";
+import { MAX_FACTS, mergeFacts, type RevampCaseStudy } from "@/lib/revamp";
 
 type Campaign = {
   clientId: number;
@@ -13,7 +13,7 @@ type Campaign = {
   timezone?: string | null;
 };
 
-const box: React.CSSProperties = {
+export const box: React.CSSProperties = {
   maxWidth: 1100,
   margin: "10px auto 0",
   padding: "12px 16px",
@@ -23,7 +23,7 @@ const box: React.CSSProperties = {
   color: "#c7c8d3",
   fontSize: 13,
 };
-const input: React.CSSProperties = {
+export const input: React.CSSProperties = {
   padding: "8px 12px",
   borderRadius: 6,
   border: "1px solid rgba(255,255,255,0.14)",
@@ -32,7 +32,7 @@ const input: React.CSSProperties = {
   fontSize: 13,
   outline: "none",
 };
-const btn: React.CSSProperties = {
+export const btn: React.CSSProperties = {
   padding: "8px 14px",
   borderRadius: 6,
   border: "1px solid rgba(255,255,255,0.14)",
@@ -44,7 +44,7 @@ const btn: React.CSSProperties = {
 
 // Reads a response as JSON; a non-JSON body (e.g. Vercel's "An error occurred…" timeout page)
 // becomes a readable error instead of "Unexpected token".
-async function readJson(res: Response) {
+export async function readJson(res: Response, source = "CallboxOne") {
   const text = await res.text();
   let json: any = null;
   try {
@@ -53,7 +53,7 @@ async function readJson(res: Response) {
     const timeout = res.status === 504 || /timeout|an error occurred/i.test(text);
     throw new Error(
       timeout
-        ? "CallboxOne took too long to answer (server time limit). Try again in a moment."
+        ? `${source} took too long to answer (server time limit). Try again in a moment.`
         : `Server error (HTTP ${res.status}): ${text.slice(0, 140)}`
     );
   }
@@ -72,13 +72,17 @@ const post = (body: unknown) =>
 // channels, quarters, funnel) from the campaign record. Narrative text is never touched.
 export default function CallboxOneImport({
   up,
+  facts,
   onClose,
   onImported,
 }: {
   up: (fn: (d: RevampCaseStudy) => void) => void;
+  facts: RevampCaseStudy["facts"];
   onClose: () => void;
   onImported?: () => void;
 }) {
+  const factsRef = useRef(facts);
+  factsRef.current = facts;
   const [q, setQ] = useState("");
   const [results, setResults] = useState<Campaign[]>([]);
   const [busy, setBusy] = useState<"" | "search" | "import">("");
@@ -151,11 +155,11 @@ export default function CallboxOneImport({
       setMsg("Building the data sections…");
       const json = await post({ step: "build", campaign: c, windows, perWindow, progression, lists });
       const p = json.patch;
+      const { dropped } = mergeFacts(factsRef.current, p.facts);
       up((d) => {
         d.heroStats = p.heroStats;
-        // Replace only the facts CallboxOne owns; keep the rest the writer entered.
-        const owned = new Set(p.facts.map((f: { label: string }) => f.label.toLowerCase()));
-        d.facts = [...p.facts, ...d.facts.filter((f) => !owned.has(f.label.toLowerCase()))].slice(0, 8);
+        // Replace only the facts CallboxOne owns; keep the rest (HubSpot's and the writer's).
+        d.facts = mergeFacts(d.facts, p.facts).facts;
         d.channels.rows = p.channels.rows;
         d.progression.quarters = p.progression.quarters.map((nq: any) => {
           const old = d.progression.quarters.find((oq) => oq.label === nq.label);
@@ -171,6 +175,7 @@ export default function CallboxOneImport({
       setMsg(
         `Imported ${c.campaignName}: ${json.period.months} months (${json.period.from} to ${json.period.to}). ` +
           (json.notes?.length ? json.notes.join(" ") + " " : "") +
+          (dropped.length ? `Left out to stay within ${MAX_FACTS} facts: ${dropped.join(", ")}. ` : "") +
           "The AI is now drafting the empty sections from these numbers."
       );
       onImported?.();
