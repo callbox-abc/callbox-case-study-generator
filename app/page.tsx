@@ -6,6 +6,7 @@ import { extractFromFile } from "@/lib/extract";
 import { copyText } from "@/lib/types";
 import { RevampCaseStudy, EMPTY_REVAMP, normalizeRevamp, revampPlainText } from "@/lib/revamp";
 import { applyDrafted, pendingFields } from "@/lib/narrative";
+import { modelLabel } from "@/lib/aiModels";
 import RevampSheet, { C as SHEET } from "@/components/revamp/RevampSheet";
 import DataImport, { type ImportSource } from "@/components/revamp/DataImport";
 import type { RecentClient } from "@/lib/recentClients";
@@ -271,7 +272,7 @@ export default function Page() {
     draftingRef.current = true;
     setPending(keys);
     setAiState("drafting");
-    setAiMsg(`Drafting ${keys.size} empty field${keys.size === 1 ? "" : "s"} with AI from the data… (about 20 to 40 seconds)`);
+    setAiMsg(`Drafting ${keys.size} empty field${keys.size === 1 ? "" : "s"} with AI from the data… (usually 1 to 2 minutes)`);
     try {
       const res = await fetch("/api/draft-narrative", {
         method: "POST",
@@ -309,7 +310,9 @@ export default function Page() {
       const shown = details.slice(0, 4).map((d) => `“${d.text}” (${d.reason})`).join("; ");
       setAiMsg(
         (drafted.length
-          ? `AI drafted ${drafted.length} field${drafted.length === 1 ? "" : "s"}. Review them before downloading or sending to the CMS.`
+          ? `AI drafted ${drafted.length} field${drafted.length === 1 ? "" : "s"}${json.model ? ` with ${modelLabel(json.model)}` : ""}${
+              json.fallbackReason ? " (the main model was unavailable, so the faster fallback wrote them)" : ""
+            }. Review them before downloading or sending to the CMS.`
           : "The AI had nothing it could ground in the data for the empty fields.") +
           (drafted.includes("Role pressures")
             ? " The role pressures are inferred from the role and the data, not said by the client: confirm them with the CSM before publishing."
