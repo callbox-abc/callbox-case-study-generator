@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { normalizeRevamp } from "@/lib/revamp";
 import { NARRATIVE_SHAPE, mergeNarrative, narrativeInput } from "@/lib/narrative";
+import { draftModels, firstThatWorks, isGemini3 } from "@/lib/aiModels";
 
 // Drafts the EMPTY narrative fields of a case study from the sheet's own data (CallboxOne
 // numbers, seniority mix, channel mix, quarters, funnel, plus any writer text already there).
 // The number guard and the "only empty fields" rule live in lib/narrative.ts.
 
-export const maxDuration = 60;
+// Gemini 3.1 Pro thinks before answering (up to ~3 minutes here), plus time for the Flash fallback.
+export const maxDuration = 300;
+const PRIMARY_TIMEOUT_MS = 180_000;
+const FALLBACK_TIMEOUT_MS = 90_000;
 
 const SYSTEM_INSTRUCTION = [
   "You write first drafts of B2B case studies for Callbox, a B2B lead generation company.",
@@ -91,33 +95,47 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({
-      model: "gemini-2.5-flash",
-      systemInstruction: SYSTEM_INSTRUCTION,
-      generationConfig: { responseMimeType: "application/json", temperature: 0.4 },
-    });
     const source = String(body.sourceText || "").slice(0, 12000).trim();
     const prompt =
       `Output shape:\n${NARRATIVE_SHAPE}\n\n` +
       `INPUT DATA:\n${JSON.stringify(narrativeInput(sheet))}\n\n` +
       (source ? `WRITER'S SOURCE DOCUMENT (facts here may also be used):\n${source}\n` : "");
 
-    const raw = (await model.generateContent(prompt)).response.text();
-    let draft: any = null;
-    for (const attempt of [raw, raw.replace(/```json|```/g, "").trim()]) {
-      try {
-        draft = JSON.parse(attempt);
-        break;
-      } catch {
-        // try next
+    // Gemini 3.1 Pro Preview first; Gemini 2.5 Flash when it fails, times out or returns no usable
+    // JSON (lib/aiModels.ts).
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const { value: draft, model, failed } = await firstThatWorks(draftModels(), async (name) => {
+      const gemini3 = isGemini3(name);
+      const m = genAI.getGenerativeModel(
+        {
+          model: name,
+          systemInstruction: SYSTEM_INSTRUCTION,
+          // Gemini 3 runs at its default temperature; Flash keeps the tuned 0.4.
+          generationConfig: gemini3 ? { responseMimeType: "application/json" } : { responseMimeType: "application/json", temperature: 0.4 },
+        },
+        { timeout: gemini3 ? PRIMARY_TIMEOUT_MS : FALLBACK_TIMEOUT_MS }
+      );
+      const raw = (await m.generateContent(prompt)).response.text();
+      for (const attempt of [raw, raw.replace(/```json|```/g, "").trim()]) {
+        try {
+          const parsed = JSON.parse(attempt);
+          if (parsed && typeof parsed === "object") return parsed;
+        } catch {
+          // try next
+        }
       }
-    }
-    if (!draft || typeof draft !== "object") {
-      return NextResponse.json({ error: "The AI did not return a usable draft. Try again." }, { status: 502 });
-    }
+      throw new Error("no usable JSON in the answer");
+    });
 
     const { next, drafted, droppedSentences, droppedDetails } = mergeNarrative(sheet, draft);
-    return NextResponse.json({ sheet: next, drafted, droppedSentences, droppedDetails });
+    return NextResponse.json({
+      sheet: next,
+      drafted,
+      droppedSentences,
+      droppedDetails,
+      model,
+      fallbackReason: failed.length ? failed.map((f) => `${f.model}: ${f.error}`).join(" | ") : null,
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || "Drafting failed." }, { status: 502 });
   }
