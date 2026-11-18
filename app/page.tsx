@@ -128,11 +128,19 @@ export default function Page() {
       if (drafted.length) aiUsedRef.current = true;
       setAiDrafted((prev) => Array.from(new Set([...prev, ...drafted])));
       const dropped = Number(json.droppedSentences) || 0;
+      // Show what the checks removed and why, so an empty heading or item is explainable.
+      const details: { text: string; reason: string }[] = Array.isArray(json.droppedDetails) ? json.droppedDetails : [];
+      const shown = details.slice(0, 4).map((d) => `“${d.text}” (${d.reason})`).join("; ");
       setAiMsg(
         (drafted.length
           ? `AI drafted ${drafted.length} field${drafted.length === 1 ? "" : "s"}. Review them before downloading or sending to the CMS.`
           : "The AI had nothing it could ground in the data for the empty fields.") +
-          (dropped ? ` ${dropped} sentence${dropped === 1 ? " was" : "s were"} removed because their numbers weren't in the data.` : "")
+          (drafted.includes("Role pressures")
+            ? " The role pressures are inferred from the role and the data, not said by the client: confirm them with the CSM before publishing."
+            : "") +
+          (dropped
+            ? ` The checks removed ${dropped} sentence${dropped === 1 ? "" : "s"}${shown ? `: ${shown}` : ""}${details.length > 4 ? "; and more" : ""}.`
+            : "")
       );
       setAiState("done");
     } catch (e: any) {

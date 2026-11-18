@@ -5,7 +5,8 @@
 //  2. Any drafted sentence containing a number that is not in the sheet's data (or a percentage
 //     derived from two of its numbers) is dropped.
 //  3. Fields with no data behind them are never drafted: client name, country, solution lines,
-//     primary contact persona, client quote, facts.
+//     the primary contact's role (it comes from HubSpot or the writer), client quote, facts.
+//     The rest of the primary contact section is drafted only once a role is on the sheet.
 //  4. Em dashes are removed (house style).
 
 import type { RevampCaseStudy, TitledItem } from "@/lib/revamp";
@@ -17,22 +18,31 @@ export type NarrativeDraft = {
   subDek?: string;
   situation?: { heading?: string; body?: string[]; pullStat?: string };
   channels?: { heading?: string; intro?: string; takeaways?: TitledItem[] };
+  primaryContact?: { heading?: string; intro?: string; context?: string; pressures?: TitledItem[]; partnerReasons?: TitledItem[] };
   howItRan?: { heading?: string; steps?: TitledItem[]; rolesHeading?: string; rolesIntro?: string };
   progression?: { heading?: string; body?: string[]; quarterNotes?: { label: string; note: string }[] };
   funnel?: { heading?: string; intro?: string };
   whatChanged?: { heading?: string; outcomes?: string[] };
   whereNext?: { heading?: string; intro?: string; recommendations?: TitledItem[] };
+  // A number-free second heading per section, used when the main one fails the checks.
+  headingBackups?: Partial<Record<SectionKey, string>>;
 };
+
+type SectionKey = "situation" | "channels" | "primaryContact" | "howItRan" | "progression" | "funnel" | "whatChanged" | "whereNext";
 
 export const NARRATIVE_SHAPE = `{
   "headline": string, "headlineHighlight": string, "dek": string, "subDek": string,
   "situation": {"heading": string, "body": string[], "pullStat": string},
   "channels": {"heading": string, "intro": string, "takeaways": [{"title": string, "body": string}]},
+  "primaryContact": {"heading": string, "intro": string, "context": string,
+    "pressures": [{"title": string, "body": string}], "partnerReasons": [{"title": string, "body": string}]},
   "howItRan": {"heading": string, "steps": [{"title": string, "body": string}], "rolesHeading": string, "rolesIntro": string},
   "progression": {"heading": string, "body": string[], "quarterNotes": [{"label": string, "note": string}]},
   "funnel": {"heading": string, "intro": string},
   "whatChanged": {"heading": string, "outcomes": string[]},
-  "whereNext": {"heading": string, "intro": string, "recommendations": [{"title": string, "body": string}]}
+  "whereNext": {"heading": string, "intro": string, "recommendations": [{"title": string, "body": string}]},
+  "headingBackups": {"situation": string, "channels": string, "primaryContact": string, "howItRan": string,
+    "progression": string, "funnel": string, "whatChanged": string, "whereNext": string}
 }`;
 
 // Pre-computed, data-backed insights so the model leads with the sharpest facts instead of
@@ -112,6 +122,7 @@ export function narrativeInput(r: RevampCaseStudy) {
       clientName: r.clientName, solutionLines: r.solutionLines, country: r.country,
       headline: r.headline, dek: r.dek,
       situation: r.situation, primaryContactRole: r.primaryContact.role,
+      leadSource: r.internal?.leadSource ?? "",
       howItRanSteps: r.howItRan.steps, outcomes: r.whatChanged.outcomes,
     },
     heroStats: r.heroStats,
@@ -231,15 +242,28 @@ function numberOk(sentence: string, m: RegExpMatchArray, A: Allowed): boolean {
 const stripDashes = (t: string) => t.replace(/\s*—\s*/g, ", ").replace(/\s+-\s+/g, ", ");
 
 // Removes sentences with unsupported numbers or any money claim. Returns the cleaned text.
-export function guardText(text: string, A: Allowed, dropped: { n: number }): string {
+// What the checks removed, and why: shown to the writer so a missing heading is explainable.
+export type Drops = { n: number; items?: { text: string; reason: string }[] };
+const noteDrop = (dropped: Drops, text: string, reason: string) => {
+  dropped.n += 1;
+  if (dropped.items && dropped.items.length < 20) dropped.items.push({ text: text.slice(0, 160), reason });
+};
+
+export function guardText(text: string, A: Allowed, dropped: Drops): string {
   const clean = stripDashes(String(text || "").trim());
   if (!clean) return "";
   // Split only at sentence ends (punctuation followed by whitespace), so decimals like 2.5 stay whole.
   const sentences = clean.split(/(?<=[.!?])\s+/);
   const kept = sentences.filter((s) => {
-    const ok = !MONEY.test(s) && !FORECAST.test(s) && [...s.matchAll(NUM)].every((m) => numberOk(s, m, A));
-    if (!ok) dropped.n += 1;
-    return ok;
+    const reason = MONEY.test(s)
+      ? "money claim"
+      : FORECAST.test(s)
+        ? "forecast"
+        : [...s.matchAll(NUM)].every((m) => numberOk(s, m, A))
+          ? ""
+          : "number not in the data";
+    if (reason) noteDrop(dropped, s, reason);
+    return !reason;
   });
   return kept.join(" ").trim();
 }
@@ -269,11 +293,11 @@ export function plainWords(t: string): string {
 // Share words are fine next to the real number ("most, 87 of 111") but not instead of it.
 const VAGUE_SHARE = /\b(large|vast|clear|overwhelming|strong) majority\b|\bmajority of\b|\bthe bulk of\b|\ba (large|big|sizable|substantial) (share|portion|part|chunk)\b|\bmost of (the )?(program|campaign|appointments|results|meetings|pipeline)\b/i;
 
-export function dropVague(text: string, dropped: { n: number }): string {
+export function dropVague(text: string, dropped: Drops): string {
   const sentences = text.split(/(?<=[.!?])\s+/);
   const kept = sentences.filter((s) => {
     const ok = !VAGUE_CLAIM.test(s) && !(VAGUE_SHARE.test(s) && !/\d/.test(s));
-    if (!ok) dropped.n += 1;
+    if (!ok) noteDrop(dropped, s, VAGUE_CLAIM.test(s) ? "unsupported quality claim" : "share word without the number");
     return ok;
   });
   return kept.join(" ").trim();
@@ -362,7 +386,7 @@ const empty = (v: unknown) => (Array.isArray(v) ? v.length === 0 : !String(v ?? 
 export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
   const next: RevampCaseStudy = structuredClone(r);
   const allowed = allowedNumbers(r);
-  const dropped = { n: 0 };
+  const dropped: Drops = { n: 0, items: [] };
   const drafted: string[] = [];
   // Proper words from the client's own name stay capitalized in sentence-case headings.
   const keep = new Set(
@@ -380,6 +404,10 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
           .filter((x) => x.title && x.body)
       : [];
 
+  // Section heading: the main one if it passes the checks, else the number-free backup.
+  const hb = draft.headingBackups || {};
+  const head = (main: unknown, key: SectionKey) => gh(main) || gh(hb[key]);
+
   const set = <T>(label: string, current: T, value: T, apply: (v: T) => void) => {
     if (empty(current) && !empty(value)) {
       apply(value);
@@ -391,7 +419,7 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
   // headline that names the client is dropped, not edited).
   const headline = titleCase(g(draft.headline).replace(/[\s:;,.]+$/, ""));
   const headlineOk = headline && !namesClient(headline, r.clientName) ? headline : "";
-  if (headline && !headlineOk) dropped.n += 1;
+  if (headline && !headlineOk) noteDrop(dropped, headline, "names the client");
   set("Headline", next.headline, headlineOk, (v) => (next.headline = v));
   // Highlight must be a substring of the (final) headline: matched ignoring case, taken from it.
   const hl = g(draft.headlineHighlight).replace(/[\s:;,.]+$/, "");
@@ -401,19 +429,30 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
   set("Sub-dek", next.subDek, g(draft.subDek), (v) => (next.subDek = v));
 
   const S = draft.situation || {};
-  set("Situation heading", next.situation.heading, gh(S.heading), (v) => (next.situation.heading = v));
+  set("Situation heading", next.situation.heading, head(S.heading, "situation"), (v) => (next.situation.heading = v));
   set("Situation text", next.situation.body, gl(S.body), (v) => (next.situation.body = v));
   set("Pull stat", next.situation.pullStat, g(S.pullStat), (v) => (next.situation.pullStat = v));
 
   const C = draft.channels || {};
   if (next.channels.rows.length) {
-    set("Channels heading", next.channels.heading, gh(C.heading), (v) => (next.channels.heading = v));
+    set("Channels heading", next.channels.heading, head(C.heading, "channels"), (v) => (next.channels.heading = v));
     set("Channels intro", next.channels.intro, g(C.intro), (v) => (next.channels.intro = v));
     set("Channel takeaways", next.channels.takeaways, gt(C.takeaways).slice(0, 2), (v) => (next.channels.takeaways = v));
   }
 
+  // Primary contact: only once a role is on the sheet (from HubSpot or the writer). The role
+  // itself is never drafted.
+  const PC = draft.primaryContact || {};
+  if (next.primaryContact.role.trim()) {
+    set("Contact heading", next.primaryContact.heading, head(PC.heading, "primaryContact"), (v) => (next.primaryContact.heading = v));
+    set("Contact intro", next.primaryContact.intro, g(PC.intro), (v) => (next.primaryContact.intro = v));
+    set("Contact context", next.primaryContact.context, g(PC.context), (v) => (next.primaryContact.context = v));
+    set("Role pressures", next.primaryContact.pressures, gt(PC.pressures).slice(0, 4), (v) => (next.primaryContact.pressures = v));
+    set("Partner reasons", next.primaryContact.partnerReasons, gt(PC.partnerReasons).slice(0, 3), (v) => (next.primaryContact.partnerReasons = v));
+  }
+
   const H = draft.howItRan || {};
-  set("How it ran heading", next.howItRan.heading, gh(H.heading), (v) => (next.howItRan.heading = v));
+  set("How it ran heading", next.howItRan.heading, head(H.heading, "howItRan"), (v) => (next.howItRan.heading = v));
   set("How it ran steps", next.howItRan.steps, gt(H.steps).slice(0, 4), (v) => (next.howItRan.steps = v));
   if (next.howItRan.roles.length) {
     set("Roles heading", next.howItRan.rolesHeading, gh(H.rolesHeading), (v) => (next.howItRan.rolesHeading = v));
@@ -422,7 +461,7 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
 
   const P = draft.progression || {};
   if (next.progression.quarters.length) {
-    set("Progression heading", next.progression.heading, gh(P.heading), (v) => (next.progression.heading = v));
+    set("Progression heading", next.progression.heading, head(P.heading, "progression"), (v) => (next.progression.heading = v));
     set("Progression text", next.progression.body, gl(P.body), (v) => (next.progression.body = v));
     let notes = 0;
     for (const qn of Array.isArray(P.quarterNotes) ? P.quarterNotes : []) {
@@ -443,16 +482,16 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
 
   const F = draft.funnel || {};
   if (next.funnel.stages.length) {
-    set("Funnel heading", next.funnel.heading, gh(F.heading), (v) => (next.funnel.heading = v));
+    set("Funnel heading", next.funnel.heading, head(F.heading, "funnel"), (v) => (next.funnel.heading = v));
     set("Funnel intro", next.funnel.intro, g(F.intro), (v) => (next.funnel.intro = v));
   }
 
   const W = draft.whatChanged || {};
-  set("What changed heading", next.whatChanged.heading, gh(W.heading), (v) => (next.whatChanged.heading = v));
+  set("What changed heading", next.whatChanged.heading, head(W.heading, "whatChanged"), (v) => (next.whatChanged.heading = v));
   set("Outcomes", next.whatChanged.outcomes, gl(W.outcomes).slice(0, 4), (v) => (next.whatChanged.outcomes = v));
 
   const N = draft.whereNext || {};
-  set("Where next heading", next.whereNext.heading, gh(N.heading), (v) => (next.whereNext.heading = v));
+  set("Where next heading", next.whereNext.heading, head(N.heading, "whereNext"), (v) => (next.whereNext.heading = v));
   set("Where next intro", next.whereNext.intro, g(N.intro), (v) => (next.whereNext.intro = v));
   set("Recommendations", next.whereNext.recommendations, gt(N.recommendations).slice(0, 3), (v) => (next.whereNext.recommendations = v));
   // If the guard dropped an item, an intro like "two actions" no longer matches: fix the count.
@@ -462,7 +501,7 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
     next.whereNext.footnote = "This section is a Callbox recommendation, not a result the client has reported.";
   }
 
-  return { next, drafted, droppedSentences: dropped.n };
+  return { next, drafted, droppedSentences: dropped.n, droppedDetails: dropped.items ?? [] };
 }
 
 /* ------------------------- pending fields (skeletons) ------------------------- */
@@ -484,6 +523,12 @@ export function pendingFields(r: RevampCaseStudy): Set<string> {
   want("channels.heading", r.channels.heading, ch);
   want("channels.intro", r.channels.intro, ch);
   want("channels.takeaways", r.channels.takeaways, ch);
+  const pc = !empty(r.primaryContact.role);
+  want("primaryContact.heading", r.primaryContact.heading, pc);
+  want("primaryContact.intro", r.primaryContact.intro, pc);
+  want("primaryContact.context", r.primaryContact.context, pc);
+  want("primaryContact.pressures", r.primaryContact.pressures, pc);
+  want("primaryContact.partnerReasons", r.primaryContact.partnerReasons, pc);
   want("howItRan.heading", r.howItRan.heading);
   want("howItRan.steps", r.howItRan.steps);
   const ro = r.howItRan.roles.length > 0;

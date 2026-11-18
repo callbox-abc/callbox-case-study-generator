@@ -59,6 +59,8 @@ export type RevampCaseStudy = {
   whereNext: { heading: string; intro: string; recommendations: TitledItem[]; footnote: string };
   methodologyNote: string;
   gate: { enabled: boolean; teaserUntil: "situation" | "channels" | "primaryContact"; formIndustryLabel: string };
+  // Import context for the AI drafter only: never rendered, never sent to the CMS.
+  internal: { leadSource: string };
 };
 
 // The JSON shape Gemini is asked to fill. Kept next to the type so they change together.
@@ -171,6 +173,7 @@ export function normalizeRevamp(p: any): RevampCaseStudy {
     },
     methodologyNote: s(p.methodologyNote),
     gate: { enabled: true, teaserUntil: "channels", formIndustryLabel: s(p.gate?.formIndustryLabel) },
+    internal: { leadSource: s(p.internal?.leadSource) },
   };
 }
 

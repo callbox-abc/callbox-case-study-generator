@@ -160,7 +160,7 @@ export default function DataImport({
   onImported,
 }: {
   up: (fn: (d: RevampCaseStudy) => void) => void;
-  sheet: Pick<RevampCaseStudy, "facts" | "clientName" | "country" | "solutionLines">;
+  sheet: Pick<RevampCaseStudy, "facts" | "clientName" | "country" | "solutionLines" | "primaryContact">;
   onClose: () => void;
   onImported?: () => void;
 }) {
@@ -252,6 +252,12 @@ export default function DataImport({
           if (!d.clientName.trim() && prof.company.name) d.clientName = prof.company.name;
           if (!d.country.trim() && prof.company.country) d.country = prof.company.country;
           if (!d.solutionLines.trim() && prof.company.solutionLines) d.solutionLines = prof.company.solutionLines;
+          const pc = prof.primaryContact;
+          if (pc) {
+            if (!d.primaryContact.role.trim()) d.primaryContact.role = pc.role;
+            if (!d.primaryContact.eyebrow.trim()) d.primaryContact.eyebrow = "Callbox works with";
+          }
+          d.internal = { ...(d.internal || {}), leadSource: pc?.leadSource || "" };
         });
         firstWon = prof.relationship?.firstWon ?? null;
         const kept: string[] = [];
@@ -260,8 +266,11 @@ export default function DataImport({
         if (now.solutionLines.trim() && prof.company.solutionLines && now.solutionLines.trim() !== prof.company.solutionLines) {
           kept.push(`solution lines (HubSpot suggests ${prof.company.solutionLines})`);
         }
+        const pc = prof.primaryContact;
+        if (pc && now.primaryContact.role.trim() && now.primaryContact.role.trim() !== pc.role) kept.push(`primary contact role (HubSpot says ${pc.role})`);
         lines.push(
           `HubSpot: ${prof.facts.length} client fact${prof.facts.length === 1 ? "" : "s"} from ${prof.company.name || client.name}.` +
+            (pc ? ` Primary contact: ${pc.role} (the client contact on ${pc.deals} closed-won deal${pc.deals === 1 ? "" : "s"}).` : "") +
             (kept.length ? ` Kept the sheet's ${kept.join(" and ")}.` : "") +
             (prof.notes?.length ? " " + prof.notes.join(" ") : "")
         );
