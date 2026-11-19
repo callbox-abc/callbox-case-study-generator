@@ -3,6 +3,7 @@
 //   npm run e2e            build, run the flows, check them, compare with the snapshot
 //   npm run e2e:update     same, then save the recording as the new snapshot (only if checks pass)
 //   node e2e/run.mjs --no-build   reuse the last production build (faster while iterating)
+//   E2E_CPU_SLOWDOWN=4 npm run e2e  run Chrome 4x slower, to catch timing races before CI does
 //
 // Needs Node 22+ and Chrome (or Chromium / Edge). Set CHROME_PATH if it isn't found. Takes about
 // a minute plus the build. Nothing outside this machine is called: the app runs with a throwaway
@@ -160,6 +161,8 @@ async function main() {
     stdio: ["ignore", serverLog, serverLog],
   });
   const profile = mkdtempSync(join(tmpdir(), "csg-e2e-chrome-"));
+  // Chrome's own output goes to a log: if it can't start (e.g. a sandbox error on CI), it says why.
+  const chromeLog = openSync(join(outDir, "chrome.log"), "w");
   start(chrome, [
     "--headless=new",
     `--remote-debugging-port=${cdpPort}`,
@@ -168,7 +171,7 @@ async function main() {
     "--no-default-browser-check",
     "--disable-gpu",
     "about:blank",
-  ], { stdio: "ignore" });
+  ], { stdio: ["ignore", chromeLog, chromeLog] });
 
   let failed = false;
   try {
@@ -178,7 +181,9 @@ async function main() {
     say("Running the editor flows…");
     let result;
     try {
-      result = await runEditorFlows({ cdp, appUrl, user: USER, pass: PASS, log: say });
+      const cpuSlowdown = Number(process.env.E2E_CPU_SLOWDOWN) || 1;
+      if (cpuSlowdown > 1) say(`Chrome CPU slowed down ${cpuSlowdown}x (E2E_CPU_SLOWDOWN).`);
+      result = await runEditorFlows({ cdp, appUrl, user: USER, pass: PASS, cpuSlowdown, log: say });
     } finally {
       cdp.close();
     }

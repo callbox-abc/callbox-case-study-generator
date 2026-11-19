@@ -1,0 +1,64 @@
+# Checks every pull request (and main after a merge): type check + unit tests, and the editor's
+# end-to-end test in headless Chrome. Neither needs secrets: the e2e test mocks every API call.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A newer push to the same PR cancels the run still going.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  unit:
+    name: Type check and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Type check
+        run: npm run lint
+      - name: Unit tests
+        run: npm test
+
+  e2e:
+    name: Editor end-to-end (headless Chrome)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Ubuntu 24.04 blocks the unprivileged user namespaces Chrome's sandbox needs. Allowing them
+      # lets Chrome run with its sandbox on (instead of --no-sandbox). Harmless where not set.
+      - name: Allow Chrome's sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: Chrome version
+        run: google-chrome --version
+      - name: End-to-end test (builds the app first)
+        run: npm run e2e
+      - name: Upload the e2e logs and last recording
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-output
+          path: e2e/.out/
+          include-hidden-files: true # .out is a dot folder
+          retention-days: 7

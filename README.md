@@ -249,8 +249,28 @@ CMS send. It fails on either of two things:
   step. When a change is intended (new button, reworded banner), run `npm run e2e:update` and
   review the snapshot diff in the PR.
 
-`node e2e/run.mjs --no-build` reuses the last build while iterating. Logs and the last recording
-go to `e2e/.out/` (git-ignored).
+`node e2e/run.mjs --no-build` reuses the last build while iterating. `E2E_CPU_SLOWDOWN=4 npm run e2e`
+runs Chrome four times slower, like a CI machine, to catch timing races before CI does. Logs and the
+last recording go to `e2e/.out/` (git-ignored).
+
+### CI (GitHub Actions)
+
+`.github/workflows/ci.yml` runs on every pull request and on `main` after a merge, as two parallel
+jobs on Ubuntu with Node 24:
+
+| Job | Runs | Time |
+|---|---|---|
+| Type check and unit tests | `npm ci`, `npm run lint`, `npm test` | about 1 minute |
+| Editor end-to-end (headless Chrome) | `npm ci`, `npm run e2e` (builds the app, then the 30 steps) | about 2 to 3 minutes |
+
+No secrets are needed: the e2e test mocks every API call. When the e2e job fails, its logs and the
+last recording are attached to the run as the `e2e-output` artifact (kept 7 days); compare
+`last-run.json` with `e2e/editor-flows.snapshot.json`, or read the failed checks in the job log.
+A newer push to the same PR cancels the run in progress.
+
+To block merging until both pass: repository Settings, Branches (or Rules), add a rule for `main`
+that requires the status checks **Type check and unit tests** and **Editor end-to-end (headless
+Chrome)**.
 
 ## Troubleshooting
 

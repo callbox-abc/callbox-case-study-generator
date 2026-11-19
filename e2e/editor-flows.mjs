@@ -81,7 +81,7 @@ function mockApi(url, method, body, calls) {
 
 /* --------------------------------- flows --------------------------------- */
 
-export async function runEditorFlows({ cdp, appUrl, user, pass, log = () => {} }) {
+export async function runEditorFlows({ cdp, appUrl, user, pass, cpuSlowdown = 1, log = () => {} }) {
   const calls = [];
   const errors = [];
   const steps = [];
@@ -103,17 +103,25 @@ export async function runEditorFlows({ cdp, appUrl, user, pass, log = () => {} }
   /* ----------------------------- helpers ----------------------------- */
   const js = (v) => JSON.stringify(v);
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  // A page check that throws counts as "not yet": while a page loads, document.body can still be
+  // null (seen on CI, which is slower: "Cannot read properties of null (reading 'innerText')").
+  // The last error is kept for the timeout message.
   const waitFor = async (fn, what, ms = 15000) => {
     const t = Date.now();
+    let lastError = null;
     while (Date.now() - t < ms) {
-      if (await fn()) return true;
+      try {
+        if (await fn()) return true;
+      } catch (e) {
+        lastError = e;
+      }
       await wait(100);
     }
-    throw new Error(`Timed out waiting for ${what}`);
+    throw new Error(`Timed out waiting for ${what}${lastError ? ` (last error: ${lastError.message.split("\n")[0]})` : ""}`);
   };
   const maybe = (fn, ms) => waitFor(fn, "", ms).catch(() => false);
   const page = (expr) => () => cdp.evaluate(expr);
-  const shows = (re) => page(`${re}.test(document.body.innerText)`);
+  const shows = (re) => page(`${re}.test(document.body?.innerText ?? "")`);
   const dialogOpen = page(`!!document.querySelector('[role=dialog]')`);
   const onStart = shows(/Start with a blank case study/);
   const inEditor = shows(/Case Study Editor/);
@@ -140,7 +148,7 @@ export async function runEditorFlows({ cdp, appUrl, user, pass, log = () => {} }
     })()`);
   const snap = () =>
     cdp.evaluate(`(() => {
-      const text = document.body.innerText;
+      const text = document.body?.innerText ?? "";
       const stage = /Case Study Editor/.test(text) ? 'editor' : /Reading your document/.test(text) ? 'mapping' : /Start with a blank case study/.test(text) ? 'start' : 'other';
       const val = (p) => document.querySelector('[placeholder=' + JSON.stringify(p) + ']')?.value ?? null;
       const toolbar = document.querySelector('.app-toolbar');
@@ -200,6 +208,9 @@ export async function runEditorFlows({ cdp, appUrl, user, pass, log = () => {} }
   await cdp.send("Network.setExtraHTTPHeaders", { headers: { Authorization: "Basic " + Buffer.from(`${user}:${pass}`).toString("base64") } });
   await cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*/api/*", requestStage: "Request" }] });
   await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1400, height: 1000, deviceScaleFactor: 1, mobile: false });
+  // A slower machine on purpose (E2E_CPU_SLOWDOWN=4 = four times slower), to catch timing races
+  // locally before CI does.
+  if (cpuSlowdown > 1) await cdp.send("Emulation.setCPUThrottlingRate", { rate: cpuSlowdown });
   await cdp.send("Page.navigate", { url: appUrl });
   await waitFor(onStart, "the start screen", 30000);
   // The page is server-rendered: clicks before hydration are lost, so click until the editor opens.
