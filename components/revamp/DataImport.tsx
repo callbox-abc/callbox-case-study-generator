@@ -338,7 +338,8 @@ export default function DataImport({
     client: Client | null = selected.client,
     campaign: Campaign | null = selected.campaign,
     stored?: StoredImport,
-    storedLabel = "saved data"
+    storedLabel = "saved data",
+    note?: string // shown first, e.g. why no HubSpot company was linked
   ) => {
     if (!client && !campaign) return;
     if (prepareSwitch) {
@@ -349,6 +350,7 @@ export default function DataImport({
     setBusy("import");
     setErr(false);
     const lines: string[] = [];
+    if (note) lines.push(note);
     if (stored) lines.push(`Loaded from ${storedLabel}: no new HubSpot or CallboxOne calls. Search the client to pull fresh numbers.`);
     let profUsed: any = null;
     let resUsed: any = null;
@@ -364,7 +366,7 @@ export default function DataImport({
     };
     let firstWon: string | null = null;
 
-    if (client && stored && !stored.hubspot) lines.push(`The ${storedLabel} has no HubSpot profile for ${client.name}.`);
+    if (client && stored && !stored.hubspot) lines.push(`No HubSpot profile for ${client.name} in ${storedLabel}.`);
     if (client && (!stored || stored.hubspot)) {
       setMsgs([...lines, stored ? `Loading ${client.name}…` : `Reading ${client.name} from HubSpot…`]);
       try {
@@ -406,7 +408,7 @@ export default function DataImport({
     }
 
     if (campaign && stored && !stored.callboxone) {
-      lines.push(`The ${storedLabel} has no CallboxOne numbers for ${campaign.campaignName}${stored.error ? ` (${stored.error})` : ""}.`);
+      lines.push(`No CallboxOne numbers for ${campaign.campaignName} in ${storedLabel}${stored.error ? ` (${stored.error})` : ""}.`);
     }
     if (campaign && (!stored || stored.callboxone)) {
       try {
@@ -505,7 +507,11 @@ export default function DataImport({
     setCampaign(c.campaign);
     setSrcErr({});
     setSearched(true);
-    run(c.company, c.campaign, c.stored, "this week's snapshot");
+    // Not guessed between same-name HubSpot companies (e.g. offices in different countries).
+    const note = c.hubspotAmbiguous
+      ? `Several HubSpot companies are named ${c.name} (for example offices in different countries), so none was linked and no HubSpot facts were filled. Search ${c.name} above to pick the right one, or fill in the client facts by hand.`
+      : undefined;
+    run(c.company, c.campaign, c.stored, "this week's snapshot", note);
   };
 
   // A recent import: load what was saved, without new calls.

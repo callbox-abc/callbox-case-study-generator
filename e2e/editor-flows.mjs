@@ -42,6 +42,31 @@ gamma.sheet.data = {
 };
 const RECENT = [recentEntry(111, "Acme Corp", "Acme Saved Headline"), recentEntry(222, "Beta Inc", "Beta Saved Headline"), gamma];
 
+// This week's most active clients: one card whose HubSpot match was ambiguous (two "Company 1"
+// records, its Brazil and Korea offices), so the job linked none (lib/topClients.ts chooseCompany).
+const TOP_SNAPSHOT = {
+  cycle: "2026-11-16",
+  refreshedAt: "2026-11-16T00:20:00Z",
+  nextRefresh: "2026-11-23T00:00:00Z",
+  candidates: 40,
+  measured: 40,
+  skippedUnnamed: 0,
+  clients: [
+    {
+      name: "Company 1",
+      domain: "",
+      months: 14,
+      sql30: 9,
+      conversions30: 3,
+      topChannel: "Voice",
+      campaign: { clientId: 444, clientAccountId: 444, campaignName: "COMP25071", clientName: "Company 1", teamLeader: null, start: "2025-07", timezone: "Asia/Seoul" },
+      company: null,
+      stored: { hubspot: null, callboxone: null },
+      hubspotAmbiguous: true,
+    },
+  ],
+};
+
 // Answers one intercepted request; logs the ones the editor sends on its own.
 function mockApi(url, method, body, calls) {
   const u = new URL(url);
@@ -49,7 +74,7 @@ function mockApi(url, method, body, calls) {
   const step = u.searchParams.get("step");
   const b = body ? JSON.parse(body) : null;
   const log = (detail) => calls.push({ method, path: p + (step ? `?step=${step}` : ""), ...detail });
-  if (p === "/api/top-clients") return { snapshot: null, job: null };
+  if (p === "/api/top-clients") return { snapshot: TOP_SNAPSHOT, job: null };
   if (p === "/api/recent-clients" && method === "GET") return u.searchParams.get("key") ? { entry: null } : { recent: RECENT };
   if (p === "/api/recent-clients" && step === "sheet") {
     log({ key: b.key, reviewed: b.reviewed, aiDrafted: b.aiDrafted, headline: b.sheet?.headline, dek: b.sheet?.dek });
@@ -451,6 +476,25 @@ export async function runEditorFlows({ cdp, appUrl, user, pass, cpuSlowdown = 1,
   await waitFor(onStart, "the start screen");
   s = await record("H5. back on the start screen");
   check("the truth check belongs to one case study", !s.banners.some((b) => /truth data/i.test(b)));
+
+  /* ---------------- I. no guessing between same-name HubSpot companies ---------------- */
+  await fromImport();
+  const cardHint = await cdp.evaluate(`[...document.querySelectorAll('button')].find(b => /COMP25071/.test(b.textContent))?.textContent.includes('Several HubSpot matches: none linked') ?? false`);
+  await cdp.evaluate(`[...document.querySelectorAll('button')].find(b => /COMP25071/.test(b.textContent)).click()`);
+  await waitFor(shows(/Several HubSpot companies are named Company 1/), "the note about the ambiguous HubSpot match");
+  await waitFor(async () => !(await page(`[...document.querySelectorAll('button')].some(b => /Import|Search/.test(b.textContent) && b.disabled)`)()), "the import to finish");
+  const note = await cdp.evaluate(`(document.body.innerText.match(/Several HubSpot companies are named[^\\n]*/) || [""])[0]`);
+  s = await record("I1. weekly card with several same-name HubSpot companies", { cardHint, note });
+  check("an ambiguous weekly card says no HubSpot company was linked", cardHint === true);
+  check(
+    "opening it explains why, and fills no HubSpot facts (left for the team)",
+    /none was linked and no HubSpot facts were filled\. Search Company 1 above to pick the right one, or fill in the client facts by hand\./.test(note) && !s.client,
+    note
+  );
+  await startOver();
+  if (await dialogOpen()) await click(/Exit without saving/);
+  await waitFor(onStart, "the start screen");
+  await record("I2. back on the start screen");
 
   check("no requests to unmocked APIs", !steps.some((st) => st.calls.some((c) => c.unmocked)));
   check("no errors in the page", errors.length === 0, errors.join(" | "));

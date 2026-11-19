@@ -176,6 +176,11 @@ export function TopClients({ onPick, disabled }: { onPick: (c: TopClient) => voi
             <div style={{ ...muted, fontSize: 11.5 }}>
               {[c.topChannel && `${c.topChannel}-led`, `${c.months} month${c.months === 1 ? "" : "s"} running`].filter(Boolean).join(" · ")}
             </div>
+            {c.hubspotAmbiguous && (
+              <div style={{ ...muted, fontSize: 11 }} title="Several HubSpot companies have this name, so none was linked: pick it in a search or fill the facts by hand">
+                Several HubSpot matches: none linked
+              </div>
+            )}
           </button>
         ))}
       </div>
