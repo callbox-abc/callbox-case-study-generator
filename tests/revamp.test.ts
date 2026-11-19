@@ -1,7 +1,7 @@
 // The sheet's data model: cleaning model output, facts, section visibility and the ACF payload.
 
 import { describe, expect, it } from "vitest";
-import { applyImportedFacts, MAX_FACTS, mergeFacts, normalizeRevamp, sectionNumbers, toAcfPayload } from "@/lib/revamp";
+import { applyImportedFacts, MAX_FACTS, mergeFacts, normalizeRevamp, pdfFileName, sectionNumbers, toAcfPayload } from "@/lib/revamp";
 import { sheet } from "./fixtures";
 
 describe("normalizeRevamp", () => {
@@ -136,5 +136,44 @@ describe("sectionNumbers", () => {
 
   it("hides the primary contact section without a role", () => {
     expect(sectionNumbers(sheet({ primaryContact: { role: "" } })).primaryContact).toBeUndefined();
+  });
+});
+
+describe("pdfFileName", () => {
+  const name = (over: Partial<{ pdfTitle: string; headline: string; clientName: string }>) =>
+    pdfFileName({ pdfTitle: "", headline: "", clientName: "", ...over });
+
+  it("is CS_ plus the headline, words joined by dashes", () => {
+    expect(name({ headline: "B2B Company Drives 503 Sales-Qualified Appointments in the Philippines Over 29 Months" })).toBe(
+      "CS_B2B-Company-Drives-503-Sales-Qualified-Appointments-in-the-Philippines-Over-29-Months"
+    );
+  });
+
+  it("uses the PDF Title field first, like the browser tab", () => {
+    expect(name({ pdfTitle: "Netrix Global Case Study", headline: "Some Headline" })).toBe("CS_Netrix-Global-Case-Study");
+  });
+
+  it("drops punctuation and apostrophes, keeps accented letters", () => {
+    expect(name({ headline: "IT Provider's Pipeline: 74% Director-Level & Above, Año 2026!" })).toBe(
+      "CS_IT-Providers-Pipeline-74-Director-Level-Above-Año-2026"
+    );
+  });
+
+  it("has one underscore, right after CS", () => {
+    const n = name({ headline: "Snake_case and   extra   spaces - and a dash" });
+    expect(n).toBe("CS_Snake-case-and-extra-spaces-and-a-dash");
+    expect(n.indexOf("_")).toBe(2);
+    expect(n.lastIndexOf("_")).toBe(2);
+  });
+
+  it("stops at a whole word near 120 characters", () => {
+    const n = name({ headline: Array.from({ length: 40 }, (_, i) => `Word${i}`).join(" ") });
+    expect(n.length).toBeLessThanOrEqual(123);
+    expect(n).toMatch(/-Word\d+$/);
+  });
+
+  it("falls back to the client name, then a generic name", () => {
+    expect(name({ clientName: "Netrix Global" })).toBe("CS_Netrix-Global");
+    expect(name({})).toBe("CS_Case-Study");
   });
 });
