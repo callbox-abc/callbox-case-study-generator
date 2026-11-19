@@ -15,20 +15,30 @@ export function useLeaveGuard({
   const skipPopRef = useRef(false);
   const requestExitRef = useRef(requestExit);
   requestExitRef.current = requestExit;
+  const stageRef = useRef(stage);
+  stageRef.current = stage;
+  // Entering the editor adds a history entry, so Back stays in the app.
   useEffect(() => {
     if (stage !== "edit") return;
     if (window.history.state?.csg !== "edit") window.history.pushState({ csg: "edit" }, "");
+  }, [stage]);
+  // One listener for the page's whole life. It used to come and go with the editor, so the Back
+  // that dropEditorEntry sends on Start over arrived after it was removed: the skip flag stayed
+  // set and swallowed the user's next Back in the editor (and the Back after that left the app
+  // without the save prompt).
+  useEffect(() => {
     const onPop = () => {
       if (skipPopRef.current) {
         skipPopRef.current = false;
         return;
       }
+      if (stageRef.current !== "edit") return;
       window.history.pushState({ csg: "edit" }, ""); // stay until the user decides
       void requestExitRef.current();
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [stage]);
+  }, []);
   // Closing or reloading the tab: browsers only allow their own generic "Leave site?" warning.
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
