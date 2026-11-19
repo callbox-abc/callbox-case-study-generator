@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "template": "node scripts/build-template.mjs"
   },
   "dependencies": {
@@ -24,6 +26,8 @@
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "docx": "^9.15.4",
-    "typescript": "^5.5.3"
+    "typescript": "^5.5.3",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
   }
 }
