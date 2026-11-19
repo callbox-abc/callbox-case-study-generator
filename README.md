@@ -116,7 +116,16 @@ hand from the project's **Schedules** tab (**Run Schedule**). Do not add a `cron
 ## Project structure
 
 ```
-app/page.tsx                       Start screen and editor (state, saving, prompts, PDF, CMS)
+app/page.tsx                       Picks the screen (start, mapping, editor) and wires the parts below
+hooks/useCaseStudyEditor.ts        Editor state and the actions across concerns (start, load, switch, leave)
+hooks/useAiDraft.ts                AI drafting of empty fields and the review banner state
+hooks/useSheetSave.ts              Saving a pulled client's sheet, unsaved changes, the save prompt
+hooks/useCmsDraft.ts               Send to CMS as draft
+hooks/useLeaveGuard.ts             Back button and tab close with unsaved changes
+hooks/usePrintTitle.ts             Tab title and the PDF file name (CS_Case-Study-Name)
+hooks/useMappingExample.ts         Few-shot example saved from a mapped document
+components/editor/                 Start screen, toolbar, banners, save prompt, sheet footer, print CSS
+lib/printPage.ts                   Sizes the PDF page to the content before printing
 app/api/callboxone/{search,import} CallboxOne search and step-by-step import (one request per quarter)
 app/api/hubspot                    HubSpot client search and client profile
 app/api/draft-narrative            AI drafting of empty fields (model chain + guardrails)
