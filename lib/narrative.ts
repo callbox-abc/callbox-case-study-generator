@@ -9,7 +9,7 @@
 //     The rest of the primary contact section is drafted only once a role is on the sheet.
 //  4. Em dashes are removed (house style).
 
-import type { RevampCaseStudy, TitledItem } from "@/lib/revamp";
+import { comparablePeriods, type RevampCaseStudy, type TitledItem } from "@/lib/revamp";
 
 export type NarrativeDraft = {
   headline?: string;
@@ -86,7 +86,8 @@ function insights(r: RevampCaseStudy) {
     out.campaignOngoing = true;
     out.currentPeriod = { label: current.label, countSoFar: current.count ?? 0, note: "still running, not a full period" };
   }
-  const full = r.progression.quarters.filter((q) => !q.isPartial && q.count !== null);
+  // Whole quarters only: a short launch period would make the low look lower than it was.
+  const full = comparablePeriods(r.progression.quarters);
   if (full.length >= 2) {
     const peak = [...full].sort((a, b) => (b.count ?? 0) - (a.count ?? 0))[0];
     const low = [...full].sort((a, b) => (a.count ?? 0) - (b.count ?? 0))[0];

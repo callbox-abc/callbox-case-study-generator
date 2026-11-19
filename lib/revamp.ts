@@ -329,6 +329,18 @@ export const SECTION_ORDER: SectionId[] = [
   "situation", "channels", "primaryContact", "howItRan", "progression", "funnel", "whatChanged", "whereNext",
 ];
 
+// Periods that can be compared with each other (peak, low, "x times"). Imports label whole
+// quarters "Q3 2025" and shorter periods by their months ("Aug–Sep 2025": a mid-quarter launch,
+// or the current period). So in a series of quarters, a month-labeled period is shorter and is
+// left out; a series with no quarter labels (a writer's own months or halves) is compared as is.
+// Periods still running (isPartial) are never compared.
+const QUARTER_LABEL = /^Q[1-4]\s+\d{4}$/i;
+export function comparablePeriods<T extends { label: string; count: number | null; isPartial: boolean }>(periods: T[]): T[] {
+  const counted = periods.filter((p) => !p.isPartial && p.count !== null);
+  const quarters = counted.filter((p) => QUARTER_LABEL.test(p.label.trim()));
+  return quarters.length ? quarters : counted;
+}
+
 export function loggedFunnelStages(r: RevampCaseStudy) {
   return r.funnel.stages.filter((x) => x.value !== null && x.value > 0);
 }

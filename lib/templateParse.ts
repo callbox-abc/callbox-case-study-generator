@@ -5,7 +5,7 @@
 // Works on mammoth's HTML output (tables keep their cells, unlike its plain-text output).
 // The HTML parsing is plain string matching, so it runs the same in the browser and in Node.
 
-import { normalizeRevamp, type RevampCaseStudy } from "@/lib/revamp";
+import { comparablePeriods, normalizeRevamp, type RevampCaseStudy } from "@/lib/revamp";
 import { TEMPLATE_SECTIONS, TEMPLATE_TITLE, TEMPLATE_VERSION, type ListField, type TemplateField } from "@/lib/templateSchema";
 
 const decode = (t: string) =>
@@ -67,13 +67,14 @@ function readList(f: ListField, rows: Row[]): { items: unknown[]; typed: boolean
   });
   if (f.flat) return { items: items.map((x) => x[f.columns[0].key]).filter(Boolean), typed };
   if (f.path === "progression.quarters") {
-    // Peak = the highest full period; a period noted as ongoing is partial.
+    // A period noted as ongoing is partial. Peak = the highest period that can be compared: whole
+    // quarters when the writer used quarter labels (lib/revamp.ts comparablePeriods).
     const partial = (q: any) => /ongoing|so far|partial|still running/i.test(`${q.label} ${q.note}`);
-    const peak = Math.max(0, ...items.filter((q) => !partial(q)).map((q: any) => q.count ?? 0));
-    for (const q of items as any[]) {
-      q.isPartial = partial(q);
-      q.isPeak = !q.isPartial && peak > 0 && q.count === peak;
-    }
+    const periods = items as any[];
+    for (const q of periods) q.isPartial = partial(q);
+    const comparable = new Set(comparablePeriods(periods));
+    const peak = Math.max(0, ...[...comparable].map((q) => q.count ?? 0));
+    for (const q of periods) q.isPeak = comparable.has(q) && peak > 0 && q.count === peak;
   }
   return { items, typed };
 }

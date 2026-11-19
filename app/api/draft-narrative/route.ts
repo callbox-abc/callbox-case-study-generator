@@ -26,6 +26,7 @@ const SYSTEM_INSTRUCTION = [
   "- If funnel stages after the first meeting have null values, do not claim opportunities or revenue. You may recommend logging them.",
   "- Channel rows with appointments null mean that channel's appointments are not tracked; do not say it produced zero unless the value is 0.",
   "- Partial periods (isPartial true) are still running; do not compare them as full quarters.",
+  "- Quarters are labeled like \"Q3 2025\". A period labeled by its months instead (e.g. \"Aug–Sep 2025\") is shorter than a quarter: the launch months or the current period. Never compare its count with a full quarter (no \"up from\", \"x times\" or \"lowest quarter\").",
   "- If insights.campaignOngoing is true, describe the program as still running (\"so far\", \"ongoing\"). Never call the current period a drop, dip or slowdown, and never give the campaign an end date.",
   "",
   "USE THE INSIGHTS:",
