@@ -788,7 +788,7 @@
     "calls": []
   },
   {
-    "step": "H1. Gamma loaded: truth data verified",
+    "step": "H1. Gamma loaded: verifying while the AI writes",
     "stage": "editor",
     "title": "Gamma Saved Headline",
     "toolbar": [
@@ -796,13 +796,13 @@
       "Saved (disabled)",
       "Copy text",
       "Hide import",
-      "Fill empty fields with AI",
+      "Drafting… (disabled)",
       "Send to CMS as draft",
       "Download PDF"
     ],
     "banners": [
-      "Verifying truth data: 2 sentences in the text have numbers that aren't in the CallboxOne data, the source of truth. Remove them (the AI redrafts an emptied field from the data), or keep a number that isn't a campaign result.\nRemove all\nKeep all\nDek: “Callbox delivered 1,622 emails in the first quarter.” (not in CallboxOne: 1,622)\nRemove\nKeep\nSituation text: “Gamma runs a 40-person IT team.” (not in CallboxOne: 40)\nRemove\nKeep",
-      "The AI had nothing it could ground in the data for the empty fields. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed"
+      "Verifying truth data… 2 sentences in the text have numbers that aren't in the CallboxOne data, the source of truth. The AI is still writing the empty fields; their numbers are checked against the CallboxOne data as they arrive.\nRemove all\nKeep all\nDek: “Callbox delivered 1,622 emails in the first quarter.” (not in CallboxOne: 1,622)\nRemove\nKeep\nSituation text: “Gamma runs a 40-person IT team.” (not in CallboxOne: 40)\nRemove\nKeep",
+      "Drafting 12 empty fields with AI from the data… (usually 1 to 2 minutes)"
     ],
     "dialog": null,
     "importPanel": true,
@@ -816,10 +816,11 @@
         "fromDoc": false,
         "headline": "Gamma Saved Headline"
       }
-    ]
+    ],
+    "progressBar": true
   },
   {
-    "step": "H2. kept the 40-person team (not a campaign result)",
+    "step": "H2. Gamma: truth data verified",
     "stage": "editor",
     "title": "Gamma Saved Headline",
     "toolbar": [
@@ -832,7 +833,32 @@
       "Download PDF"
     ],
     "banners": [
-      "Verifying truth data: 1 sentence in the text has numbers that aren't in the CallboxOne data, the source of truth. Remove it (the AI redrafts an emptied field from the data), or keep a number that isn't a campaign result.\nKeep all\nDek: “Callbox delivered 1,622 emails in the first quarter.” (not in CallboxOne: 1,622)\nRemove\nKeep",
+      "Truth data verified: 2 sentences in the text have numbers that aren't in the CallboxOne data, the source of truth. Remove them (the AI redrafts an emptied field from the data), or keep a number that isn't a campaign result.\nRemove all\nKeep all\nDek: “Callbox delivered 1,622 emails in the first quarter.” (not in CallboxOne: 1,622)\nRemove\nKeep\nSituation text: “Gamma runs a 40-person IT team.” (not in CallboxOne: 40)\nRemove\nKeep",
+      "The AI had nothing it could ground in the data for the empty fields. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Gamma Saved Headline",
+    "dek": "Callbox delivered 1,622 emails in the first quarter.",
+    "client": "Gamma Ltd",
+    "calls": [],
+    "progressBar": false
+  },
+  {
+    "step": "H3. kept the 40-person team (not a campaign result)",
+    "stage": "editor",
+    "title": "Gamma Saved Headline",
+    "toolbar": [
+      "← Start over",
+      "Saved (disabled)",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "Truth data verified: 1 sentence in the text has numbers that aren't in the CallboxOne data, the source of truth. Remove it (the AI redrafts an emptied field from the data), or keep a number that isn't a campaign result.\nKeep all\nDek: “Callbox delivered 1,622 emails in the first quarter.” (not in CallboxOne: 1,622)\nRemove\nKeep",
       "The AI had nothing it could ground in the data for the empty fields. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed"
     ],
     "dialog": null,
@@ -843,7 +869,7 @@
     "calls": []
   },
   {
-    "step": "H3. removed 1,622: the AI redrafts the dek from the data",
+    "step": "H4. removed 1,622: the AI redrafts the dek from the data",
     "stage": "editor",
     "title": "Gamma Saved Headline",
     "toolbar": [
@@ -856,7 +882,7 @@
       "Download PDF"
     ],
     "banners": [
-      "Verifying truth data: every number in the text matches the CallboxOne data, apart from 1 sentence kept on purpose.\nDismiss",
+      "Truth data verified: every number in the text matches the CallboxOne data, apart from 1 sentence kept on purpose.\nDismiss",
       "AI drafted 1 field with Gemini 3.1 Pro Preview. Review them before downloading or sending to the CMS. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed\nAI-written: Dek"
     ],
     "dialog": null,
@@ -874,7 +900,7 @@
     ]
   },
   {
-    "step": "H4. back on the start screen",
+    "step": "H5. back on the start screen",
     "stage": "start",
     "title": "Callbox Case Study Generator",
     "toolbar": null,

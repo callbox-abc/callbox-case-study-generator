@@ -298,6 +298,8 @@ export function useCaseStudyEditor() {
     requestAutoDraft: ai.requestAutoDraft,
     onImported,
     truthActive: truth.active,
+    // The text isn't final while the AI writes the empty fields: the check shows as in progress.
+    truthChecking: truth.active && ai.aiState === "drafting",
     truthFindings: truth.findings,
     truthKeptCount: truth.keptCount,
     keepTruthFinding: truth.keep,

@@ -63,9 +63,13 @@ function mockApi(url, method, body, calls) {
     const fromDoc = Boolean(b.sourceText);
     log({ fromDoc, headline: b.sheet?.headline });
     // A mapped document drafts nothing (so its mapping example can be saved); a client gets a dek.
+    // Gamma's first draft (its text still has the stale 1,622) answers late, like the real AI, so
+    // the truth check can be seen in progress.
+    const slow = /1,622/.test(b.sheet?.dek || "") ? { __delay: 1500 } : {};
     return fromDoc
       ? { sheet: b.sheet, drafted: [], droppedSentences: 0, droppedDetails: [], model: "gemini-3.1-pro-preview" }
       : {
+          ...slow,
           sheet: { ...b.sheet, dek: b.sheet.dek || "AI dek from the data." },
           drafted: b.sheet.dek ? [] : ["Dek"],
           droppedSentences: 1,
@@ -107,13 +111,18 @@ export async function runEditorFlows({ cdp, appUrl, user, pass, cpuSlowdown = 1,
   cdp.on("Fetch.requestPaused", ({ requestId, request }) => {
     const res = mockApi(request.url, request.method, request.postData, calls);
     const status = res.__status || 200;
+    const delay = res.__delay || 0; // a mock can answer late, like the real service
     delete res.__status;
-    cdp.send("Fetch.fulfillRequest", {
-      requestId,
-      responseCode: status,
-      responseHeaders: [{ name: "Content-Type", value: "application/json" }],
-      body: Buffer.from(JSON.stringify(res)).toString("base64"),
-    });
+    delete res.__delay;
+    const fulfill = () =>
+      cdp.send("Fetch.fulfillRequest", {
+        requestId,
+        responseCode: status,
+        responseHeaders: [{ name: "Content-Type", value: "application/json" }],
+        body: Buffer.from(JSON.stringify(res)).toString("base64"),
+      });
+    if (delay) setTimeout(fulfill, delay);
+    else fulfill();
   });
 
   /* ----------------------------- helpers ----------------------------- */
@@ -404,34 +413,44 @@ export async function runEditorFlows({ cdp, appUrl, user, pass, cpuSlowdown = 1,
     await waitFor(page(`!!${find}`), `the finding "${text}"`);
     await cdp.evaluate(`[...${find}.querySelectorAll('button')].find(b => b.textContent.trim() === ${js(label)}).click()`);
   };
-  const truthBanner = (st) => st.banners.find((b) => /^Verifying truth data:/.test(b)) || "";
+  const truthBanner = (st) => st.banners.find((b) => /^(Verifying truth data|Truth data verified)/.test(b)) || "";
+  const progressBar = page(`!!document.querySelector('[role=progressbar]')`);
   await fromImport();
   await click(/Gamma Ltd/);
-  await waitFor(shows(/Verifying truth data:/), "the truth check");
-  await waitFor(sent(/\/api\/draft-narrative/), "the AI draft");
-  await waitFor(async () => !(await shows(/Drafting/)()), "the AI draft to finish");
-  s = await record("H1. Gamma loaded: truth data verified");
+  // The AI is still writing (its answer comes 1.5s late): the check shows as in progress.
+  await waitFor(progressBar, "the truth check's progress bar");
+  s = await record("H1. Gamma loaded: verifying while the AI writes", { progressBar: true });
+  check(
+    "while the AI writes, the truth check shows it is in progress, with what it found so far",
+    /^Verifying truth data… 2 sentences in the text have numbers/.test(truthBanner(s)) && /The AI is still writing/.test(truthBanner(s)),
+    truthBanner(s)
+  );
+  // (The draft request itself was sent before H1 was recorded, so it is in H1's requests.)
+  await waitFor(async () => !(await progressBar()), "the AI draft to finish");
+  s = await record("H2. Gamma: truth data verified", { progressBar: await progressBar() });
+  check("once the text is final, the bar goes and the check says it is done", s.progressBar === false && /^Truth data verified:/.test(truthBanner(s)), truthBanner(s));
   check("truth check flags the draft's number CallboxOne doesn't have", /2 sentences/.test(truthBanner(s)) && /Dek: “Callbox delivered 1,622 emails in the first quarter\.” \(not in CallboxOne: 1,622\)/.test(truthBanner(s)), truthBanner(s));
   check("truth check passes numbers CallboxOne has", !/111 appointments/.test(truthBanner(s)), truthBanner(s));
   await clickInFinding("40-person", "Keep");
   await waitFor(shows(/1 sentence in the text has/), "one finding left");
-  s = await record("H2. kept the 40-person team (not a campaign result)");
+  s = await record("H3. kept the 40-person team (not a campaign result)");
   check("a kept sentence leaves the list and stays in the text", !/40-person/.test(truthBanner(s)) && (await cdp.evaluate(`document.body.innerText.includes("Gamma runs a 40-person IT team.") || [...document.querySelectorAll('textarea')].some(t => t.value.includes("40-person"))`)));
   await clickInFinding("1,622", "Remove");
   await waitFor(sent(/\/api\/draft-narrative/), "the AI redraft of the emptied dek");
   await waitFor(page(`document.querySelector('[placeholder="Dek: who the client is and what changed"]')?.value === "AI dek from the data."`), "the redrafted dek");
-  s = await record("H3. removed 1,622: the AI redrafts the dek from the data");
+  await waitFor(async () => !(await progressBar()), "the redraft to finish");
+  s = await record("H4. removed 1,622: the AI redrafts the dek from the data");
   check("Remove takes the sentence out and the AI redrafts the emptied field", s.dek === "AI dek from the data." && callsOf(s, /draft-narrative/).length === 1);
   check(
     "verified: no number left that CallboxOne doesn't back, and the kept sentence is counted",
-    /every number in the text matches the CallboxOne data, apart from 1 sentence kept on purpose\./.test(truthBanner(s)),
+    /^Truth data verified: every number in the text matches the CallboxOne data, apart from 1 sentence kept on purpose\./.test(truthBanner(s)),
     truthBanner(s)
   );
   await startOver();
   if (await dialogOpen()) await click(/Exit without saving/);
   await waitFor(onStart, "the start screen");
-  s = await record("H4. back on the start screen");
-  check("the truth check belongs to one case study", !s.banners.some((b) => /Verifying truth data/.test(b)));
+  s = await record("H5. back on the start screen");
+  check("the truth check belongs to one case study", !s.banners.some((b) => /truth data/i.test(b)));
 
   check("no requests to unmocked APIs", !steps.some((st) => st.calls.some((c) => c.unmocked)));
   check("no errors in the page", errors.length === 0, errors.join(" | "));

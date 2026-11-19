@@ -38,6 +38,11 @@ export function EditorStyles() {
         .sk-dark { background: linear-gradient(90deg, rgba(255,255,255,0.07) 25%, rgba(255,255,255,0.16) 45%, rgba(255,255,255,0.07) 65%); background-size: 400% 100%; }
         @keyframes skShimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
         @media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+        /* Indeterminate progress bar (Verifying truth data while the AI is still writing). */
+        .progress-track { position: relative; height: 4px; border-radius: 999px; overflow: hidden; background: rgba(245,185,20,0.15); }
+        .progress-track > span { position: absolute; top: 0; bottom: 0; width: 35%; border-radius: 999px; background: #f5b914; animation: progressSlide 1.2s ease-in-out infinite; }
+        @keyframes progressSlide { 0% { left: -35%; } 100% { left: 100%; } }
+        @media (prefers-reduced-motion: reduce) { .progress-track > span { animation: none; left: 0; width: 60%; } }
         .not-printed { position: relative; }
         .not-printed > * { opacity: 0.45; }
         .not-printed:hover { outline: 1px dashed rgba(107,107,107,0.6); outline-offset: 2px; border-radius: 6px; }
