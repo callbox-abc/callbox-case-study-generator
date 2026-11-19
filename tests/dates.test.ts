@@ -1,7 +1,7 @@
 // Campaign start months, quarter windows and the weekly job cycle.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { quarterWindows, startFromCampaignCode } from "@/lib/callboxone";
+import { isFullQuarter, quarterWindows, startFromCampaignCode } from "@/lib/callboxone";
 import { currentCycle, jobCycle, nextRefresh } from "@/lib/topClients";
 
 const month = (d: Date | null) => (d ? d.toISOString().slice(0, 7) : null);
@@ -49,6 +49,30 @@ describe("quarterWindows", () => {
   it("labels a partial quarter in its first month by that month alone", () => {
     const w = quarterWindows(new Date(Date.UTC(2026, 9, 1)), new Date(Date.UTC(2026, 9, 15)));
     expect(w).toEqual([{ label: "Oct 2026", from: "2026-10-01", to: "2026-10-15", partial: true }]);
+  });
+
+  it("labels a mid-quarter launch by its months, not as a full quarter", () => {
+    const w = quarterWindows(new Date(Date.UTC(2025, 7, 1)), new Date(Date.UTC(2026, 2, 31)));
+    expect(w).toEqual([
+      { label: "Aug–Sep 2025", from: "2025-08-01", to: "2025-09-30", partial: false },
+      { label: "Q4 2025", from: "2025-10-01", to: "2025-12-31", partial: false },
+      { label: "Q1 2026", from: "2026-01-01", to: "2026-03-31", partial: false },
+    ]);
+    const lastMonth = quarterWindows(new Date(Date.UTC(2025, 8, 1)), new Date(Date.UTC(2025, 11, 31)));
+    expect(lastMonth[0].label).toBe("Sep 2025");
+  });
+});
+
+describe("isFullQuarter", () => {
+  it("is true only for a whole, finished calendar quarter", () => {
+    expect(isFullQuarter({ label: "Q4 2025", from: "2025-10-01", to: "2025-12-31", partial: false })).toBe(true);
+    expect(isFullQuarter({ label: "Q1 2024", from: "2024-01-01", to: "2024-03-31", partial: false })).toBe(true);
+    expect(isFullQuarter({ label: "Aug–Sep 2025", from: "2025-08-01", to: "2025-09-30", partial: false })).toBe(false);
+    expect(isFullQuarter({ label: "Oct–Nov 2026", from: "2026-10-01", to: "2026-11-19", partial: true })).toBe(false);
+  });
+
+  it("reads the dates, not the label", () => {
+    expect(isFullQuarter({ label: "Q3 2025", from: "2025-08-01", to: "2025-09-30", partial: false })).toBe(false);
   });
 });
 

@@ -77,7 +77,10 @@ const SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "O
 
 export type Window = { label: string; from: string; to: string; partial: boolean };
 
-// Calendar quarters from the start month to today; the last one may be partial.
+// Calendar quarters from the start month to today. Only whole quarters are labeled "Q3 2025".
+// The current quarter is partial (still running), and a campaign that starts mid-quarter has a
+// short first period: both are labeled by their months ("Oct–Nov 2026", "Aug–Sep 2025") so a
+// two-month launch never reads as a full quarter.
 export function quarterWindows(start: Date, today = new Date()): Window[] {
   const out: Window[] = [];
   let y = start.getUTCFullYear();
@@ -89,11 +92,12 @@ export function quarterWindows(start: Date, today = new Date()): Window[] {
     const from = qStart < start ? start : qStart;
     const partial = qEnd > today;
     const to = partial ? today : qEnd;
-    const label = partial
-      ? from.getUTCMonth() === to.getUTCMonth()
+    const whole = !partial && from.getTime() === qStart.getTime();
+    const label = whole
+      ? `Q${q + 1} ${y}`
+      : from.getUTCMonth() === to.getUTCMonth()
         ? `${SHORT[from.getUTCMonth()]} ${from.getUTCFullYear()}`
-        : `${SHORT[from.getUTCMonth()]}–${SHORT[to.getUTCMonth()]} ${to.getUTCFullYear()}`
-      : `Q${q + 1} ${y}`;
+        : `${SHORT[from.getUTCMonth()]}–${SHORT[to.getUTCMonth()]} ${to.getUTCFullYear()}`;
     out.push({ label, from: iso(from), to: iso(to), partial });
     q += 1;
     if (q > 3) {
@@ -102,6 +106,20 @@ export function quarterWindows(start: Date, today = new Date()): Window[] {
     }
   }
   return out;
+}
+
+// A whole calendar quarter, read from the dates (windows also come back from the browser, so the
+// label is not trusted): not still running, from the quarter's first day to its last.
+export function isFullQuarter(w: Window): boolean {
+  if (w.partial) return false;
+  const from = new Date(`${w.from}T00:00:00Z`);
+  const to = new Date(`${w.to}T00:00:00Z`);
+  const m = from.getUTCMonth();
+  return (
+    from.getUTCDate() === 1 &&
+    m % 3 === 0 &&
+    to.getTime() === Date.UTC(from.getUTCFullYear(), m + 3, 0)
+  );
 }
 
 // Appointment and registration job titles are free text (90 distinct titles on one campaign),
@@ -298,18 +316,24 @@ export function buildPatch(
   rows.sort((a, b) => (b.appointments ?? -1) - (a.appointments ?? -1));
   if (total.emailDelivered > 0) notes.push("Email appointments are not split out in CallboxOne; the email row shows no appointment count.");
 
-  const peak = Math.max(0, ...perWindow.map((t, i) => (windows[i].partial ? 0 : t.sql)));
+  // Peak and low compare whole quarters only: the running quarter and a short launch period
+  // (a campaign that started mid-quarter) would make the low look lower than it was.
+  const full = windows.map(isFullQuarter);
+  const peak = Math.max(0, ...perWindow.map((t, i) => (full[i] ? t.sql : 0)));
   // Period notes are computed from the numbers, not written by the AI, so they can't misdescribe
   // a quarter (e.g. "held steady" for a drop from 35 to 24).
-  const fullCounts = perWindow.filter((_, i) => !windows[i].partial).map((t) => t.sql);
+  const fullCounts = perWindow.filter((_, i) => full[i]).map((t) => t.sql);
   const low = fullCounts.length >= 2 ? Math.min(...fullCounts) : -1;
   const quarterNote = (i: number): string => {
     const w = windows[i];
     const n = perWindow[i].sql;
     if (w.partial) return "Still running.";
-    if (i === 0) return "Launch quarter.";
+    if (i === 0) return full[i] ? "Launch quarter." : "Launch months, not a full quarter.";
+    if (!full[i]) return "";
     if (peak > 0 && n === peak) return "Peak quarter.";
     if (n === low && low < peak) return "Low point.";
+    // No "up from" a shorter launch period: the counts cover different lengths of time.
+    if (!full[i - 1]) return "First full quarter.";
     const prev = perWindow[i - 1].sql;
     if (n > prev) return `Up from ${windows[i - 1].label}.`;
     if (n < prev) return `Down from ${windows[i - 1].label}.`;
@@ -319,7 +343,7 @@ export function buildPatch(
     label: w.label,
     count: perWindow[i].sql,
     note: quarterNote(i),
-    isPeak: !w.partial && peak > 0 && perWindow[i].sql === peak,
+    isPeak: full[i] && peak > 0 && perWindow[i].sql === peak,
     isPartial: w.partial,
   }));
 

@@ -71,6 +71,18 @@ describe("parseTemplateHtml", () => {
     expect(q["Oct–Nov 2026"].isPartial).toBe(true);
     expect(q["Oct–Nov 2026"].isPeak).toBe(false);
   });
+
+  it("never makes a short launch period the peak in a series of quarters", () => {
+    const html = doc(
+      row(cell("Periods")) +
+        row(cell("Period"), cell("Appointments"), cell("Note")) +
+        row(cell("Aug–Sep 2025"), cell("40"), cell("")) +
+        row(cell("Q4 2025"), cell("35"), cell("")) +
+        row(cell("Q1 2026"), cell("30"), cell(""))
+    );
+    const q = parseTemplateHtml(html)!.sheet.progression.quarters;
+    expect(q.map((x) => x.isPeak)).toEqual([false, true, false]);
+  });
 });
 
 describe("the shipped template file", () => {
