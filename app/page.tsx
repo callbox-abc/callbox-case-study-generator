@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { ArrowRight, Database, Download, FilePlus, FileText, Upload } from "lucide-react";
 import { extractFromFile } from "@/lib/extract";
 import { copyText } from "@/lib/types";
-import { RevampCaseStudy, EMPTY_REVAMP, normalizeRevamp, revampPlainText } from "@/lib/revamp";
+import { RevampCaseStudy, EMPTY_REVAMP, normalizeRevamp, pdfFileName, revampPlainText } from "@/lib/revamp";
 import { applyDrafted, pendingFields } from "@/lib/narrative";
 import { modelLabel } from "@/lib/aiModels";
 import { codeLetters, sheetMatchesClient } from "@/lib/clientMatch";
@@ -355,9 +355,24 @@ export default function Page() {
   // The browser/print document title must come from the document's own "PDF Title" field
   // (a distinct metadata field in the source, separate from the on-page case study headline
   // shown in the hero). Fall back to the on-page title, then the app name, if it's empty.
+  const screenTitle = cs.pdfTitle || cs.headline || "Callbox Case Study Generator";
   useEffect(() => {
-    document.title = cs.pdfTitle || cs.headline || "Callbox Case Study Generator";
-  }, [cs.pdfTitle, cs.headline]);
+    document.title = screenTitle;
+  }, [screenTitle]);
+
+  // Saving as PDF names the file after the page title, so while printing (Download PDF or Ctrl+P)
+  // the title is the file name, "CS_Case-Study-Name"; the tab gets its normal title back after.
+  const pdfName = pdfFileName(cs);
+  useEffect(() => {
+    const before = () => { document.title = pdfName; };
+    const after = () => { document.title = screenTitle; };
+    window.addEventListener("beforeprint", before);
+    window.addEventListener("afterprint", after);
+    return () => {
+      window.removeEventListener("beforeprint", before);
+      window.removeEventListener("afterprint", after);
+    };
+  }, [pdfName, screenTitle]);
 
   const runMapping = async (text: string) => {
     setStage("mapping");
@@ -575,6 +590,7 @@ export default function Page() {
   const printNow = () => {
     saveMappingExample();
     applyDynamicPageSize();
+    document.title = pdfName; // set here too, not only on beforeprint: the button path never depends on event timing
     window.print();
   };
 

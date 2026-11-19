@@ -365,6 +365,23 @@ export function sectionNumbers(r: RevampCaseStudy): Partial<Record<SectionId, nu
   return out;
 }
 
+// File name for the saved PDF (browsers use the page title): "CS_" + the case study's title with
+// its words joined by dashes, e.g. "CS_B2B-Company-Drives-503-Sales-Qualified-Appointments-in-
+// the-Philippines-Over-29-Months". Same title as the browser tab: the PDF Title field, else the
+// headline. Punctuation goes, accented letters stay, and it stops at a whole word near 120 chars.
+const NOT_WORD = new RegExp("[^\\p{L}\\p{N}]+", "u");
+export function pdfFileName(r: Pick<RevampCaseStudy, "pdfTitle" | "headline" | "clientName">): string {
+  const title = r.pdfTitle.trim() || r.headline.trim() || r.clientName.trim();
+  const words = title.replace(/['’]/g, "").split(NOT_WORD).filter(Boolean);
+  let name = "";
+  for (const w of words) {
+    const next = name ? `${name}-${w}` : w;
+    if (next.length > 120) break;
+    name = next;
+  }
+  return `CS_${name || "Case-Study"}`;
+}
+
 export function revampPlainText(r: RevampCaseStudy): string {
   const L: string[] = [];
   const push = (...x: string[]) => x.filter(Boolean).forEach((v) => L.push(v));
