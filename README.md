@@ -139,6 +139,7 @@ lib/recentClients.ts               Shared recent imports and saved sheets
 lib/templateSchema.ts              Word template fields (drives the .docx and its reader)
 lib/templateParse.ts               Reads a filled template word for word (no AI)
 lib/extract.ts                     .docx (mammoth) and .pdf (pdf.js from cdnjs) text extraction
+tests/                             Unit tests for the pure functions (npm test)
 scripts/build-template.mjs         Builds public/callbox-case-study-template.docx
 supabase/app_cache.sql             Table for the snapshot, recent imports and saved sheets
 proxy.ts                           Shared login (Basic Auth) for every page and API route
@@ -193,7 +194,26 @@ Push to `main`; Vercel builds and deploys. Schedules come from `vercel.json`. Af
 | `npm run dev` | Local dev server |
 | `npm run build` | Production build |
 | `npm run lint` | Type check (`tsc --noEmit`) |
+| `npm test` | Unit tests (Vitest), about 1 second; `npm run test:watch` reruns them on save |
 | `npm run template` | Rebuild `public/callbox-case-study-template.docx` after changing `lib/templateSchema.ts` |
+
+## Tests
+
+`tests/` covers the pure functions behind the app's accuracy: no network, no Supabase, no AI, no env vars.
+Run `npm test` before merging anything that touches `lib/`.
+
+| File | Guards |
+|---|---|
+| `numberGuard.test.ts` | Drafted sentences only keep numbers from the data; derived % and ratios need both source numbers in the sentence; a data count never passes as a %; money and forecasts dropped |
+| `narrative.test.ts` | Writer text is never replaced (also during drafting); headline never names the client or credits the total to one channel; no contact section without a role; recommendation counts; house style |
+| `clientMatch.test.ts` | A saved sheet naming another client is refused (the Logitech over Derevo bug); one entry per campaign |
+| `recentMerge.test.ts` | Merging old entries keeps the HubSpot-matched details, the right sheet and the newest CMS draft |
+| `dates.test.ts` | Start month from campaign codes (2-digit sequence, region suffix), quarter windows, weekly cycle and its 30-minute grace |
+| `hubspot.test.ts` | Seats and services from deal names, grounded solution line, job titles, countries, seniority groups |
+| `revamp.test.ts` | Model output cleaning, ACF payload (0 vs null, no drafter-only data), fact limits, section numbering |
+| `templateParse.test.ts` | The Word template is read word for word; the shipped `.docx` is recognized and reads as empty |
+
+`tests/fixtures.ts` holds a Netrix-shaped sheet with the numbers the tests reason about.
 
 ## Troubleshooting
 
