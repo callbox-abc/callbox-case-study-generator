@@ -249,8 +249,9 @@ CMS send. It fails on either of two things:
   step. When a change is intended (new button, reworded banner), run `npm run e2e:update` and
   review the snapshot diff in the PR.
 
-`node e2e/run.mjs --no-build` reuses the last build while iterating. Logs and the last recording
-go to `e2e/.out/` (git-ignored).
+`node e2e/run.mjs --no-build` reuses the last build while iterating. `E2E_CPU_SLOWDOWN=4 npm run e2e`
+runs Chrome four times slower, like a CI machine, to catch timing races before CI does. Logs and the
+last recording go to `e2e/.out/` (git-ignored).
 
 ### CI (GitHub Actions)
 
