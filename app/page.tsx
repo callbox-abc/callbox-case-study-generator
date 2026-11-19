@@ -6,7 +6,7 @@
 import RevampSheet, { C as SHEET } from "@/components/revamp/RevampSheet";
 import DataImport from "@/components/revamp/DataImport";
 import { DevKeynote } from "@/components/editor/Brand";
-import { AiBanner, CmsBanner, MapErrorBanner, NoticeBanner } from "@/components/editor/EditorBanners";
+import { AiBanner, CmsBanner, MapErrorBanner, NoticeBanner, TruthBanner } from "@/components/editor/EditorBanners";
 import { EditorStyles } from "@/components/editor/EditorStyles";
 import { EditorToolbar } from "@/components/editor/EditorToolbar";
 import { SavePrompt } from "@/components/editor/SavePrompt";
@@ -51,7 +51,7 @@ export default function Page() {
           up={ed.up}
           sheet={ed.cs}
           onClose={() => ed.setShowImport(false)}
-          onImported={ed.requestAutoDraft}
+          onImported={ed.onImported}
           onSource={ed.onSource}
           onLoadSaved={ed.loadSaved}
           prepareSwitch={ed.prepareSwitch}
@@ -60,6 +60,14 @@ export default function Page() {
 
       {ed.saveAsk && <SavePrompt kind={ed.saveAsk.kind} name={ed.saveAsk.name} onChoose={ed.answerSave} />}
 
+      <TruthBanner
+        active={ed.truthActive}
+        findings={ed.truthFindings}
+        keptCount={ed.truthKeptCount}
+        onRemove={ed.removeTruthFindings}
+        onKeep={ed.keepTruthFinding}
+        onDismiss={ed.dismissTruthCheck}
+      />
       <AiBanner aiState={ed.aiState} aiMsg={ed.aiMsg} aiDrafted={ed.aiDrafted} onMarkReviewed={ed.markReviewed} />
       <CmsBanner cmsState={ed.cmsState} cmsMsg={ed.cmsMsg} cmsLink={ed.cmsLink} />
       <NoticeBanner notice={ed.notice} />

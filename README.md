@@ -34,6 +34,13 @@ result goes out as a PDF or as a WordPress draft on the CMS.
 ### Editor
 
 - The sheet mirrors the live case study page. Empty sections are dashed and stay out of the PDF and the CMS.
+- **Verifying truth data**: once CallboxOne numbers are on the sheet (after the initial data, HubSpot or
+  a document or template, and the secondary data, CallboxOne, are plotted: a live or saved import, or a
+  saved client that has them), every number in the sheet's text is checked against the data.
+  **CallboxOne is the source of truth.** A sentence with a number it doesn't back (a draft's "1,622
+  emails" when CallboxOne has 117,570) is listed with **Remove** (the AI then redrafts an emptied field
+  from the data) or **Keep** (a number that isn't a campaign result, like "a 40-person IT team"). The
+  list updates as the text changes. `lib/truthCheck.ts`, `hooks/useTruthCheck.ts`.
 - **AI drafting** fills only empty text fields, from the sheet's own data. It runs on its own after an
   import or a mapped document; **Fill empty fields with AI** appears when there is data and something
   is still empty (to redraft a field, clear it).
@@ -103,7 +110,9 @@ hand from the project's **Schedules** tab (**Run Schedule**). Do not add a `cron
 - **Guardrails in code** (`lib/narrative.ts`), not only in the prompt:
   - only empty fields are filled; writer text is never replaced;
   - a sentence with a number that isn't in the sheet's data (or derived from two of its numbers) is
-    dropped, as are money claims and forecasts; the banner lists what was removed and why;
+    dropped, as are money claims and forecasts; the banner lists what was removed and why. Only the
+    data counts: a number that is only in the sheet's existing text is not allowed, so the AI can't
+    repeat a stale figure the truth check would flag;
   - the headline is Title Case and never names the client; a headline that credits the whole
     appointment total to one channel is rejected (a backup headline is tried);
   - generic section headings lose to a specific backup heading;
@@ -119,6 +128,8 @@ hand from the project's **Schedules** tab (**Run Schedule**). Do not add a `cron
 app/page.tsx                       Picks the screen (start, mapping, editor) and wires the parts below
 hooks/useCaseStudyEditor.ts        Editor state and the actions across concerns (start, load, switch, leave)
 hooks/useAiDraft.ts                AI drafting of empty fields and the review banner state
+hooks/useTruthCheck.ts             "Verifying truth data" state: findings, Keep, Remove
+lib/truthCheck.ts                  Finds and removes sentences whose numbers CallboxOne doesn't back
 hooks/useSheetSave.ts              Saving a pulled client's sheet, unsaved changes, the save prompt
 hooks/useCmsDraft.ts               Send to CMS as draft
 hooks/useLeaveGuard.ts             Back button and tab close with unsaved changes
@@ -235,23 +246,25 @@ are never called. About 15 seconds plus the build. Needs Node 22+ and Chrome, Ch
 (set `CHROME_PATH` if it isn't found). Run it before merging anything that touches `app/page.tsx`,
 `hooks/` or `components/editor/`.
 
-It walks 30 steps: the Word template, a mapped document and its PDF, a saved client with the AI
+It walks 34 steps: the Word template, a mapped document and its PDF, a saved client with the AI
 draft, Save, Mark as reviewed, the Start over / Back / tab-close guards, switching clients, sending
-to the CMS and updating the draft, the PDF file name, a blank sheet, and a second client after a
-CMS send. It fails on either of two things:
+to the CMS and updating the draft, the PDF file name, a blank sheet, a second client after a CMS
+send, and verifying truth data (a stale number flagged and removed, then redrafted from the data; a
+non-campaign number kept). It fails on either of two things:
 
-- **Checks** (33, in `e2e/editor-flows.mjs`): named rules, for example "Beta never overwrites
-  Acme's draft" or "browser Back asks to save". These include the four bugs this test found
-  (CMS draft id carried into the next case study, Back swallowed after Start over, stale notice,
-  tab title not reset).
+- **Checks** (39, in `e2e/editor-flows.mjs`): named rules, for example "Beta never overwrites
+  Acme's draft" or "truth check flags the draft's number CallboxOne doesn't have". These include
+  the four bugs this test found (CMS draft id carried into the next case study, Back swallowed after
+  Start over, stale notice, tab title not reset).
 - **Snapshot** (`e2e/editor-flows.snapshot.json`): what each step showed (screen, tab title,
   toolbar, banners, dialog, fields) and every request the page sent. Any difference is printed per
   step. When a change is intended (new button, reworded banner), run `npm run e2e:update` and
   review the snapshot diff in the PR.
 
 `node e2e/run.mjs --no-build` reuses the last build while iterating. `E2E_CPU_SLOWDOWN=4 npm run e2e`
-runs Chrome four times slower, like a CI machine, to catch timing races before CI does. Logs and the
-last recording go to `e2e/.out/` (git-ignored).
+runs Chrome four times slower, like a CI machine, to catch timing races before CI does.
+`E2E_SCREENSHOTS=1` also saves a screenshot of every step to `e2e/.out/screens/`, for reviewing UI
+changes. Logs and the last recording go to `e2e/.out/` (git-ignored).
 
 ### CI (GitHub Actions)
 
@@ -261,10 +274,11 @@ jobs on Ubuntu with Node 24:
 | Job | Runs | Time |
 |---|---|---|
 | Type check and unit tests | `npm ci`, `npm run lint`, `npm test` | about 1 minute |
-| Editor end-to-end (headless Chrome) | `npm ci`, `npm run e2e` (builds the app, then the 30 steps) | about 2 to 3 minutes |
+| Editor end-to-end (headless Chrome) | `npm ci`, `npm run e2e` (builds the app, then the 34 steps) | about 2 to 3 minutes |
 
-No secrets are needed: the e2e test mocks every API call. When the e2e job fails, its logs and the
-last recording are attached to the run as the `e2e-output` artifact (kept 7 days); compare
+No secrets are needed: the e2e test mocks every API call. When the e2e job fails, its logs, a
+screenshot of every step and the last recording are attached to the run as the `e2e-output`
+artifact (kept 7 days); compare
 `last-run.json` with `e2e/editor-flows.snapshot.json`, or read the failed checks in the job log.
 A newer push to the same PR cancels the run in progress.
 

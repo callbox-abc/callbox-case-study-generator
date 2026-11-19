@@ -449,6 +449,9 @@ export default function DataImport({
       onSource?.({ key: key || recentKey(campaign?.clientAccountId, client?.companyId), client, campaign, stored: stored ?? { hubspot: profUsed, callboxone: resUsed } });
     }
     if (pulledNumbers) {
+      // Initial (HubSpot) and secondary (CallboxOne) data are plotted: next, the text is verified
+      // against CallboxOne, the source of truth, and the AI drafts what's empty.
+      lines.push("Verifying truth data: the numbers in the sheet's text are checked against CallboxOne (results below this panel).");
       lines.push("The AI is now drafting the empty sections from this data.");
       onImported?.();
     }

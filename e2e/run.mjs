@@ -4,6 +4,7 @@
 //   npm run e2e:update     same, then save the recording as the new snapshot (only if checks pass)
 //   node e2e/run.mjs --no-build   reuse the last production build (faster while iterating)
 //   E2E_CPU_SLOWDOWN=4 npm run e2e  run Chrome 4x slower, to catch timing races before CI does
+//   E2E_SCREENSHOTS=1 npm run e2e   also save a screenshot of every step in e2e/.out/screens/
 //
 // Needs Node 22+ and Chrome (or Chromium / Edge). Set CHROME_PATH if it isn't found. Takes about
 // a minute plus the build. Nothing outside this machine is called: the app runs with a throwaway
@@ -183,7 +184,12 @@ async function main() {
     try {
       const cpuSlowdown = Number(process.env.E2E_CPU_SLOWDOWN) || 1;
       if (cpuSlowdown > 1) say(`Chrome CPU slowed down ${cpuSlowdown}x (E2E_CPU_SLOWDOWN).`);
-      result = await runEditorFlows({ cdp, appUrl, user: USER, pass: PASS, cpuSlowdown, log: say });
+      const screenshotDir = process.env.E2E_SCREENSHOTS === "1" ? join(outDir, "screens") : null;
+      if (screenshotDir) {
+        rmSync(screenshotDir, { recursive: true, force: true });
+        mkdirSync(screenshotDir, { recursive: true });
+      }
+      result = await runEditorFlows({ cdp, appUrl, user: USER, pass: PASS, cpuSlowdown, screenshotDir, log: say });
     } finally {
       cdp.close();
     }
