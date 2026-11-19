@@ -1,0 +1,790 @@
+[
+  {
+    "step": "A. start screen",
+    "stage": "start",
+    "title": "Callbox Case Study Generator",
+    "toolbar": null,
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": null,
+    "dek": null,
+    "client": null,
+    "calls": []
+  },
+  {
+    "step": "B1. template dropped",
+    "stage": "editor",
+    "title": "Callbox Case Study Generator",
+    "toolbar": [
+      "← Start over",
+      "Copy text",
+      "Hide import",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "The template was empty. Import HubSpot + CallboxOne data below, or fill in the sheet here."
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "",
+    "dek": "",
+    "client": "",
+    "calls": []
+  },
+  {
+    "step": "B2. start over from template (no prompt)",
+    "stage": "start",
+    "title": "Callbox Case Study Generator",
+    "toolbar": null,
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": null,
+    "dek": null,
+    "client": null,
+    "calls": []
+  },
+  {
+    "step": "C1. document mapped",
+    "stage": "editor",
+    "title": "Mapped Headline From The Document",
+    "toolbar": [
+      "← Start over",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "The AI had nothing it could ground in the data for the empty fields.\nMark as reviewed"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Mapped Headline From The Document",
+    "dek": "",
+    "client": "Mapped Co",
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/api/draft-narrative",
+        "fromDoc": true,
+        "headline": "Mapped Headline From The Document"
+      },
+      {
+        "method": "POST",
+        "path": "/api/map-revamp",
+        "sourceHasText": true
+      }
+    ]
+  },
+  {
+    "step": "C2. downloaded PDF (mapping example saved)",
+    "stage": "editor",
+    "title": "Mapped Headline From The Document",
+    "toolbar": [
+      "← Start over",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "The AI had nothing it could ground in the data for the empty fields.\nMark as reviewed"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Mapped Headline From The Document",
+    "dek": "",
+    "client": "Mapped Co",
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/api/save-example",
+        "wasCorrected": false,
+        "headline": "Mapped Headline From The Document"
+      }
+    ],
+    "print": {
+      "titleAtPrint": "CS_Mapped-Headline-Document",
+      "pageRule": "@media print { @page { size: <n>in <n>in; margin: 0; } }",
+      "titleAfter": "Mapped Headline From The Document"
+    }
+  },
+  {
+    "step": "C3. downloaded again (no second example)",
+    "stage": "editor",
+    "title": "Mapped Headline Edited",
+    "toolbar": [
+      "← Start over",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "The AI had nothing it could ground in the data for the empty fields.\nMark as reviewed"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Mapped Headline Edited",
+    "dek": "",
+    "client": "Mapped Co",
+    "calls": [],
+    "print": {
+      "titleAtPrint": "CS_Mapped-Headline-Edited",
+      "pageRule": "@media print { @page { size: <n>in <n>in; margin: 0; } }",
+      "titleAfter": "Mapped Headline Edited"
+    }
+  },
+  {
+    "step": "C4. start over from document (no prompt)",
+    "stage": "start",
+    "title": "Callbox Case Study Generator",
+    "toolbar": null,
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": null,
+    "dek": null,
+    "client": null,
+    "calls": []
+  },
+  {
+    "step": "D1. import panel open",
+    "stage": "editor",
+    "title": "Callbox Case Study Generator",
+    "toolbar": [
+      "← Start over",
+      "Copy text",
+      "Hide import",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "",
+    "dek": "",
+    "client": "",
+    "calls": []
+  },
+  {
+    "step": "D2. Acme loaded, AI drafted",
+    "stage": "editor",
+    "title": "Acme Saved Headline",
+    "toolbar": [
+      "← Start over",
+      "Save",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "AI drafted 1 field with Gemini 3.1 Pro Preview. Review them before downloading or sending to the CMS. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed\nAI-written: Dek"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Acme Saved Headline",
+    "dek": "AI dek from the data.",
+    "client": "Acme Corp",
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/api/draft-narrative",
+        "fromDoc": false,
+        "headline": "Acme Saved Headline"
+      }
+    ],
+    "unloadBlocked": true
+  },
+  {
+    "step": "D3. saved",
+    "stage": "editor",
+    "title": "Acme Saved Headline",
+    "toolbar": [
+      "← Start over",
+      "Saved (disabled)",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "AI drafted 1 field with Gemini 3.1 Pro Preview. Review them before downloading or sending to the CMS. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed\nAI-written: Dek"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Acme Saved Headline",
+    "dek": "AI dek from the data.",
+    "client": "Acme Corp",
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/api/recent-clients?step=sheet",
+        "key": "recent:111",
+        "reviewed": false,
+        "aiDrafted": [
+          "Dek"
+        ],
+        "headline": "Acme Saved Headline",
+        "dek": "AI dek from the data."
+      }
+    ]
+  },
+  {
+    "step": "D4. marked as reviewed",
+    "stage": "editor",
+    "title": "Acme Saved Headline",
+    "toolbar": [
+      "← Start over",
+      "Saved (disabled)",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Acme Saved Headline",
+    "dek": "AI dek from the data.",
+    "client": "Acme Corp",
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/api/recent-clients?step=sheet",
+        "key": "recent:111",
+        "reviewed": true,
+        "aiDrafted": [],
+        "headline": "Acme Saved Headline",
+        "dek": "AI dek from the data."
+      }
+    ],
+    "unloadBlocked": false
+  },
+  {
+    "step": "D5. edited (dirty)",
+    "stage": "editor",
+    "title": "Acme Edited Headline",
+    "toolbar": [
+      "← Start over",
+      "Save",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Acme Edited Headline",
+    "dek": "AI dek from the data.",
+    "client": "Acme Corp",
+    "calls": [],
+    "unloadBlocked": true
+  },
+  {
+    "step": "D6. start over asks",
+    "stage": "editor",
+    "title": "Acme Edited Headline",
+    "toolbar": [
+      "← Start over",
+      "Save",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [],
+    "dialog": "Save before exit?\n\nYour changes to Acme Corp aren't saved yet. Saving updates the shared copy everyone loads from Recently imported clients.\n\nCancel\nExit without saving\nSave and exit",
+    "importPanel": true,
+    "headline": "Acme Edited Headline",
+    "dek": "AI dek from the data.",
+    "client": "Acme Corp",
+    "calls": []
+  },
+  {
+    "step": "D7. cancel keeps the editor",
+    "stage": "editor",
+    "title": "Acme Edited Headline",
+    "toolbar": [
+      "← Start over",
+      "Save",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Acme Edited Headline",
+    "dek": "AI dek from the data.",
+    "client": "Acme Corp",
+    "calls": []
+  },
+  {
+    "step": "D8. browser Back asks",
+    "stage": "editor",
+    "title": "Acme Edited Headline",
+    "toolbar": [
+      "← Start over",
+      "Save",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [],
+    "dialog": "Save before exit?\n\nYour changes to Acme Corp aren't saved yet. Saving updates the shared copy everyone loads from Recently imported clients.\n\nCancel\nExit without saving\nSave and exit",
+    "importPanel": true,
+    "headline": "Acme Edited Headline",
+    "dek": "AI dek from the data.",
+    "client": "Acme Corp",
+    "calls": [],
+    "backAsked": true
+  },
+  {
+    "step": "D9. exit without saving",
+    "stage": "start",
+    "title": "Callbox Case Study Generator",
+    "toolbar": null,
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": null,
+    "dek": null,
+    "client": null,
+    "calls": []
+  },
+  {
+    "step": "E1. Acme edited",
+    "stage": "editor",
+    "title": "Acme Edited Before Switch",
+    "toolbar": [
+      "← Start over",
+      "Save",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "AI drafted 1 field with Gemini 3.1 Pro Preview. Review them before downloading or sending to the CMS. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed\nAI-written: Dek"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Acme Edited Before Switch",
+    "dek": "AI dek from the data.",
+    "client": "Acme Corp",
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/api/draft-narrative",
+        "fromDoc": false,
+        "headline": "Acme Saved Headline"
+      }
+    ]
+  },
+  {
+    "step": "E2. switching asks to save Acme",
+    "stage": "editor",
+    "title": "Acme Edited Before Switch",
+    "toolbar": [
+      "← Start over",
+      "Save",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "AI drafted 1 field with Gemini 3.1 Pro Preview. Review them before downloading or sending to the CMS. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed\nAI-written: Dek"
+    ],
+    "dialog": "Save Acme Corp first?\n\nYou're loading another client, and your changes to Acme Corp aren't saved yet. Saving updates the shared copy everyone loads from Recently imported clients.\n\nCancel\nDon't save\nSave and continue",
+    "importPanel": true,
+    "headline": "Acme Edited Before Switch",
+    "dek": "AI dek from the data.",
+    "client": "Acme Corp",
+    "calls": []
+  },
+  {
+    "step": "E3. Beta loaded on a clean sheet",
+    "stage": "editor",
+    "title": "Beta Saved Headline",
+    "toolbar": [
+      "← Start over",
+      "Save",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "AI drafted 1 field with Gemini 3.1 Pro Preview. Review them before downloading or sending to the CMS. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed\nAI-written: Dek"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Beta Saved Headline",
+    "dek": "AI dek from the data.",
+    "client": "Beta Inc",
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/api/draft-narrative",
+        "fromDoc": false,
+        "headline": "Beta Saved Headline"
+      },
+      {
+        "method": "POST",
+        "path": "/api/recent-clients?step=sheet",
+        "key": "recent:111",
+        "reviewed": false,
+        "aiDrafted": [
+          "Dek"
+        ],
+        "headline": "Acme Edited Before Switch",
+        "dek": "AI dek from the data."
+      }
+    ]
+  },
+  {
+    "step": "E4. sent to the CMS",
+    "stage": "editor",
+    "title": "Beta Saved Headline",
+    "toolbar": [
+      "← Start over",
+      "Saved (disabled)",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Update CMS draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "AI drafted 1 field with Gemini 3.1 Pro Preview. Review them before downloading or sending to the CMS. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed\nAI-written: Dek",
+      "Draft #4321 saved. Review it in WordPress before publishing. Placed under “Callbox Lead Generation Success Stories”.\nOpen in WordPress →"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Beta Saved Headline",
+    "dek": "AI dek from the data.",
+    "client": "Beta Inc",
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/api/cms/draft",
+        "pageId": null,
+        "headline": "Beta Saved Headline"
+      },
+      {
+        "method": "POST",
+        "path": "/api/recent-clients?step=draft",
+        "key": "recent:222",
+        "id": 4321
+      },
+      {
+        "method": "POST",
+        "path": "/api/recent-clients?step=sheet",
+        "key": "recent:222",
+        "reviewed": false,
+        "aiDrafted": [
+          "Dek"
+        ],
+        "headline": "Beta Saved Headline",
+        "dek": "AI dek from the data."
+      }
+    ]
+  },
+  {
+    "step": "E5. CMS draft updated",
+    "stage": "editor",
+    "title": "Beta Saved Headline",
+    "toolbar": [
+      "← Start over",
+      "Saved (disabled)",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Update CMS draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "AI drafted 1 field with Gemini 3.1 Pro Preview. Review them before downloading or sending to the CMS. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed\nAI-written: Dek",
+      "Draft #4321 saved. Review it in WordPress before publishing.\nOpen in WordPress →"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Beta Saved Headline",
+    "dek": "AI dek from the data.",
+    "client": "Beta Inc",
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/api/cms/draft",
+        "pageId": 4321,
+        "headline": "Beta Saved Headline"
+      },
+      {
+        "method": "POST",
+        "path": "/api/recent-clients?step=draft",
+        "key": "recent:222",
+        "id": 4321
+      }
+    ]
+  },
+  {
+    "step": "E6. downloaded PDF",
+    "stage": "editor",
+    "title": "Beta Saved Headline",
+    "toolbar": [
+      "← Start over",
+      "Saved (disabled)",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Update CMS draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "AI drafted 1 field with Gemini 3.1 Pro Preview. Review them before downloading or sending to the CMS. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed\nAI-written: Dek",
+      "Draft #4321 saved. Review it in WordPress before publishing.\nOpen in WordPress →"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Beta Saved Headline",
+    "dek": "AI dek from the data.",
+    "client": "Beta Inc",
+    "calls": [],
+    "ctrlP": {
+      "during": "CS_Beta-Saved-Headline",
+      "after": "Beta Saved Headline"
+    },
+    "print": {
+      "titleAtPrint": "CS_Beta-Saved-Headline",
+      "pageRule": "@media print { @page { size: <n>in <n>in; margin: 0; } }",
+      "titleAfter": "Beta Saved Headline"
+    },
+    "unloadBlocked": false
+  },
+  {
+    "step": "E7. start over after CMS (saved, no prompt)",
+    "stage": "start",
+    "title": "Callbox Case Study Generator",
+    "toolbar": null,
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": null,
+    "dek": null,
+    "client": null,
+    "calls": []
+  },
+  {
+    "step": "F1. blank sheet",
+    "stage": "editor",
+    "title": "Callbox Case Study Generator",
+    "toolbar": [
+      "← Start over",
+      "Copy text",
+      "Hide import",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "",
+    "dek": "",
+    "client": "",
+    "calls": []
+  },
+  {
+    "step": "F2. start over from blank (no prompt)",
+    "stage": "start",
+    "title": "Callbox Case Study Generator",
+    "toolbar": null,
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": null,
+    "dek": null,
+    "client": null,
+    "calls": [],
+    "unloadBlocked": false
+  },
+  {
+    "step": "G1. Acme sent to the CMS",
+    "stage": "editor",
+    "title": "Acme Saved Headline",
+    "toolbar": [
+      "← Start over",
+      "Saved (disabled)",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Update CMS draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "AI drafted 1 field with Gemini 3.1 Pro Preview. Review them before downloading or sending to the CMS. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed\nAI-written: Dek",
+      "Draft #4321 saved. Review it in WordPress before publishing. Placed under “Callbox Lead Generation Success Stories”.\nOpen in WordPress →"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Acme Saved Headline",
+    "dek": "AI dek from the data.",
+    "client": "Acme Corp",
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/api/cms/draft",
+        "pageId": null,
+        "headline": "Acme Saved Headline"
+      },
+      {
+        "method": "POST",
+        "path": "/api/draft-narrative",
+        "fromDoc": false,
+        "headline": "Acme Saved Headline"
+      },
+      {
+        "method": "POST",
+        "path": "/api/recent-clients?step=draft",
+        "key": "recent:111",
+        "id": 4321
+      },
+      {
+        "method": "POST",
+        "path": "/api/recent-clients?step=sheet",
+        "key": "recent:111",
+        "reviewed": false,
+        "aiDrafted": [
+          "Dek"
+        ],
+        "headline": "Acme Saved Headline",
+        "dek": "AI dek from the data."
+      }
+    ]
+  },
+  {
+    "step": "G2. start over after Acme's CMS draft",
+    "stage": "start",
+    "title": "Callbox Case Study Generator",
+    "toolbar": null,
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": null,
+    "dek": null,
+    "client": null,
+    "calls": []
+  },
+  {
+    "step": "G3. Beta loaded after Start over",
+    "stage": "editor",
+    "title": "Beta Saved Headline",
+    "toolbar": [
+      "← Start over",
+      "Save",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "AI drafted 1 field with Gemini 3.1 Pro Preview. Review them before downloading or sending to the CMS. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed\nAI-written: Dek"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Beta Saved Headline",
+    "dek": "AI dek from the data.",
+    "client": "Beta Inc",
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/api/draft-narrative",
+        "fromDoc": false,
+        "headline": "Beta Saved Headline"
+      }
+    ]
+  },
+  {
+    "step": "G4. Beta sent to the CMS",
+    "stage": "editor",
+    "title": "Beta Saved Headline",
+    "toolbar": [
+      "← Start over",
+      "Saved (disabled)",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Update CMS draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "AI drafted 1 field with Gemini 3.1 Pro Preview. Review them before downloading or sending to the CMS. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed\nAI-written: Dek",
+      "Draft #4321 saved. Review it in WordPress before publishing. Placed under “Callbox Lead Generation Success Stories”.\nOpen in WordPress →"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Beta Saved Headline",
+    "dek": "AI dek from the data.",
+    "client": "Beta Inc",
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/api/cms/draft",
+        "pageId": null,
+        "headline": "Beta Saved Headline"
+      },
+      {
+        "method": "POST",
+        "path": "/api/recent-clients?step=draft",
+        "key": "recent:222",
+        "id": 4321
+      },
+      {
+        "method": "POST",
+        "path": "/api/recent-clients?step=sheet",
+        "key": "recent:222",
+        "reviewed": false,
+        "aiDrafted": [
+          "Dek"
+        ],
+        "headline": "Beta Saved Headline",
+        "dek": "AI dek from the data."
+      }
+    ]
+  },
+  {
+    "step": "G5. back on the start screen",
+    "stage": "start",
+    "title": "Callbox Case Study Generator",
+    "toolbar": null,
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": null,
+    "dek": null,
+    "client": null,
+    "calls": []
+  }
+]
