@@ -40,7 +40,9 @@ result goes out as a PDF or as a WordPress draft on the CMS.
   **CallboxOne is the source of truth.** A sentence with a number it doesn't back (a draft's "1,622
   emails" when CallboxOne has 117,570) is listed with **Remove** (the AI then redrafts an emptied field
   from the data) or **Keep** (a number that isn't a campaign result, like "a 40-person IT team"). The
-  list updates as the text changes. `lib/truthCheck.ts`, `hooks/useTruthCheck.ts`.
+  list updates as the text changes. While the AI is still writing the empty fields, the banner reads
+  **"Verifying truth data…"** with a progress bar (findings so far are already listed); once the text
+  is final it reads **"Truth data verified:"**. `lib/truthCheck.ts`, `hooks/useTruthCheck.ts`.
 - **AI drafting** fills only empty text fields, from the sheet's own data. It runs on its own after an
   import or a mapped document; **Fill empty fields with AI** appears when there is data and something
   is still empty (to redraft a field, clear it).
@@ -246,13 +248,13 @@ are never called. About 15 seconds plus the build. Needs Node 22+ and Chrome, Ch
 (set `CHROME_PATH` if it isn't found). Run it before merging anything that touches `app/page.tsx`,
 `hooks/` or `components/editor/`.
 
-It walks 34 steps: the Word template, a mapped document and its PDF, a saved client with the AI
+It walks 35 steps: the Word template, a mapped document and its PDF, a saved client with the AI
 draft, Save, Mark as reviewed, the Start over / Back / tab-close guards, switching clients, sending
 to the CMS and updating the draft, the PDF file name, a blank sheet, a second client after a CMS
 send, and verifying truth data (a stale number flagged and removed, then redrafted from the data; a
 non-campaign number kept). It fails on either of two things:
 
-- **Checks** (39, in `e2e/editor-flows.mjs`): named rules, for example "Beta never overwrites
+- **Checks** (41, in `e2e/editor-flows.mjs`): named rules, for example "Beta never overwrites
   Acme's draft" or "truth check flags the draft's number CallboxOne doesn't have". These include
   the four bugs this test found (CMS draft id carried into the next case study, Back swallowed after
   Start over, stale notice, tab title not reset).
@@ -274,7 +276,7 @@ jobs on Ubuntu with Node 24:
 | Job | Runs | Time |
 |---|---|---|
 | Type check and unit tests | `npm ci`, `npm run lint`, `npm test` | about 1 minute |
-| Editor end-to-end (headless Chrome) | `npm ci`, `npm run e2e` (builds the app, then the 34 steps) | about 2 to 3 minutes |
+| Editor end-to-end (headless Chrome) | `npm ci`, `npm run e2e` (builds the app, then the 35 steps) | about 2 to 3 minutes |
 
 No secrets are needed: the e2e test mocks every API call. When the e2e job fails, its logs, a
 screenshot of every step and the last recording are attached to the run as the `e2e-output`

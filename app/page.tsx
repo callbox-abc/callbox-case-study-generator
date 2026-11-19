@@ -62,6 +62,7 @@ export default function Page() {
 
       <TruthBanner
         active={ed.truthActive}
+        checking={ed.truthChecking}
         findings={ed.truthFindings}
         keptCount={ed.truthKeptCount}
         onRemove={ed.removeTruthFindings}

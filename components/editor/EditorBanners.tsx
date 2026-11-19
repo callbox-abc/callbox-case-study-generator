@@ -9,8 +9,11 @@ import { BORDER_STRONG, CARD_BG, MUTED, MUTED_LIGHT, TEXT, YELLOW, btnGhost } fr
 // "Verifying truth data": sentences whose numbers aren't in the CallboxOne data (the source of
 // truth), each with Remove (the AI redrafts an emptied field from the data) or Keep (a number that
 // isn't a campaign result). Shown once CallboxOne numbers are on the sheet.
+// While the AI is still writing the empty fields (`checking`), the text isn't final yet: the banner
+// says "Verifying truth data…" with a progress bar, then "Truth data verified:" once it is.
 export function TruthBanner({
   active,
+  checking,
   findings,
   keptCount,
   onRemove,
@@ -18,6 +21,7 @@ export function TruthBanner({
   onDismiss,
 }: {
   active: boolean;
+  checking: boolean;
   findings: TextFinding[];
   keptCount: number;
   onRemove: (fs: TextFinding[]) => void;
@@ -27,16 +31,26 @@ export function TruthBanner({
   if (!active) return null;
   const n = findings.length;
   const small: React.CSSProperties = { ...btnGhost, padding: "4px 10px", fontSize: 12 };
+  const found = `${n} sentence${n === 1 ? "" : "s"} in the text ${n === 1 ? "has" : "have"} numbers that aren't in the CallboxOne data, the source of truth.`;
+  const message = checking
+    ? (n ? `${found} ` : "") +
+      "The AI is still writing the empty fields; their numbers are checked against the CallboxOne data as they arrive."
+    : n
+      ? `${found} Remove ${n === 1 ? "it" : "them"} (the AI redrafts an emptied field from the data), or keep a number that isn't a campaign result.`
+      : `every number in the text matches the CallboxOne data${
+          keptCount ? `, apart from ${keptCount} sentence${keptCount === 1 ? "" : "s"} kept on purpose` : ""
+        }.`;
   return (
     <div
       className="app-toolbar"
       role="status"
+      aria-busy={checking}
       style={{
         maxWidth: 1100,
         margin: "10px auto 0",
         padding: "10px 16px",
         borderRadius: 8,
-        border: "1px solid " + (n ? YELLOW : BORDER_STRONG),
+        border: "1px solid " + (n || checking ? YELLOW : BORDER_STRONG),
         background: CARD_BG,
         color: MUTED_LIGHT,
         fontSize: 13,
@@ -44,12 +58,7 @@ export function TruthBanner({
     >
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
         <span>
-          <b style={{ color: TEXT }}>Verifying truth data:</b>{" "}
-          {n
-            ? `${n} sentence${n === 1 ? "" : "s"} in the text ${n === 1 ? "has" : "have"} numbers that aren't in the CallboxOne data, the source of truth. Remove ${n === 1 ? "it" : "them"} (the AI redrafts an emptied field from the data), or keep a number that isn't a campaign result.`
-            : `every number in the text matches the CallboxOne data${
-                keptCount ? `, apart from ${keptCount} sentence${keptCount === 1 ? "" : "s"} kept on purpose` : ""
-              }.`}
+          <b style={{ color: TEXT }}>{checking ? "Verifying truth data…" : "Truth data verified:"}</b> {message}
         </span>
         <span style={{ display: "flex", gap: 8 }}>
           {n > 1 && (
@@ -57,11 +66,18 @@ export function TruthBanner({
               Remove all
             </button>
           )}
-          <button onClick={onDismiss} style={small}>
-            {n ? "Keep all" : "Dismiss"}
-          </button>
+          {(n > 0 || !checking) && (
+            <button onClick={onDismiss} style={small}>
+              {n ? "Keep all" : "Dismiss"}
+            </button>
+          )}
         </span>
       </div>
+      {checking && (
+        <div className="progress-track" role="progressbar" aria-label="Verifying truth data" style={{ marginTop: 8 }}>
+          <span />
+        </div>
+      )}
       {n > 0 && (
         <ul style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 6 }}>
           {findings.map((f) => (
