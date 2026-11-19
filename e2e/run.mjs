@@ -160,6 +160,8 @@ async function main() {
     stdio: ["ignore", serverLog, serverLog],
   });
   const profile = mkdtempSync(join(tmpdir(), "csg-e2e-chrome-"));
+  // Chrome's own output goes to a log: if it can't start (e.g. a sandbox error on CI), it says why.
+  const chromeLog = openSync(join(outDir, "chrome.log"), "w");
   start(chrome, [
     "--headless=new",
     `--remote-debugging-port=${cdpPort}`,
@@ -168,7 +170,7 @@ async function main() {
     "--no-default-browser-check",
     "--disable-gpu",
     "about:blank",
-  ], { stdio: "ignore" });
+  ], { stdio: ["ignore", chromeLog, chromeLog] });
 
   let failed = false;
   try {
