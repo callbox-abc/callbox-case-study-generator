@@ -70,14 +70,33 @@ export function useCaseStudyEditor() {
   const canDraft = ai.aiState === "drafting" || (hasDraftData && pendingFields(cs).size > 0);
   const dirty = stage === "edit" && Boolean(importSourceRef.current) && saveFingerprint(cs, reviewedRef.current) !== lastSavedRef.current;
 
+  /* ------------------------------- one case study ------------------------------- */
+
+  // Everything that belongs to one case study. Cleared on Start over and when a new sheet starts
+  // (blank, template, document or client), so the next case study never inherits the last one's
+  // sheet and tab title, notice, error, AI banner or CMS draft id (with that id, "Update CMS
+  // draft" would overwrite the previous client's WordPress draft).
+  const clearCaseStudy = () => {
+    importSourceRef.current = null; // the sheet is left behind: nothing to warn about any more
+    reviewedRef.current = false;
+    lastSavedRef.current = "";
+    save.setSaveState("idle");
+    setNotice("");
+    setMapError("");
+    ai.resetAi();
+    cms.resetCms();
+    setCs(EMPTY_REVAMP);
+    mapping.setSourceText("");
+    mapping.setOriginalMapped(null);
+    mapping.savedExampleRef.current = false;
+  };
+
   /* ------------------------------- leaving the editor ------------------------------- */
 
   const exitToStart = () => {
     leave.dropEditorEntry();
-    importSourceRef.current = null; // the sheet is left behind: nothing to warn about any more
-    lastSavedRef.current = "";
-    save.setSaveState("idle");
-    saveMappingExample();
+    saveMappingExample(); // before clearing: it reads this session's sheet and whether the AI was used
+    clearCaseStudy();
     setStage("upload");
   };
   // A function declaration, so useLeaveGuard above can take it (it keeps the latest one in a ref).
@@ -160,12 +179,9 @@ export function useCaseStudyEditor() {
 
   const runMapping = async (text: string) => {
     setStage("mapping");
-    setMapError("");
-    ai.resetAi();
+    clearCaseStudy();
     mapping.setSourceText(text);
-    sourceTextRef.current = text;
-    mapping.setOriginalMapped(null);
-    mapping.savedExampleRef.current = false;
+    sourceTextRef.current = text; // after clearCaseStudy, which empties it
     try {
       const res = await fetch("/api/map-revamp", {
         method: "POST",
@@ -219,15 +235,7 @@ export function useCaseStudyEditor() {
   };
 
   const startBlank = () => {
-    importSourceRef.current = null;
-    reviewedRef.current = false;
-    lastSavedRef.current = "";
-    setNotice("");
-    ai.resetAi();
-    setCs(EMPTY_REVAMP);
-    mapping.setSourceText("");
-    mapping.setOriginalMapped(null);
-    mapping.savedExampleRef.current = false;
+    clearCaseStudy();
     setStage("edit");
   };
 
