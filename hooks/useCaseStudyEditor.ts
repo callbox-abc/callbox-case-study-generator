@@ -2,6 +2,7 @@
 // that span several concerns (starting, loading, switching and leaving a client). The concerns
 // themselves live in their own hooks:
 //   useAiDraft         AI drafting of empty fields, review banner
+//   useTruthCheck      "Verifying truth data": the text's numbers against CallboxOne's
 //   useSheetSave       saving a pulled client's sheet, unsaved changes, the save prompt
 //   useCmsDraft        Send to CMS as draft
 //   useMappingExample  few-shot example from a mapped document
@@ -24,6 +25,7 @@ import { useLeaveGuard } from "@/hooks/useLeaveGuard";
 import { useMappingExample } from "@/hooks/useMappingExample";
 import { usePrintTitle } from "@/hooks/usePrintTitle";
 import { saveFingerprint, useSheetSave } from "@/hooks/useSheetSave";
+import { useTruthCheck } from "@/hooks/useTruthCheck";
 
 export type Stage = "upload" | "mapping" | "edit";
 
@@ -54,6 +56,7 @@ export function useCaseStudyEditor() {
   const sourceTextRef = useRef("");
 
   const ai = useAiDraft({ csRef, setCs, sourceTextRef, reviewedRef });
+  const truth = useTruthCheck({ cs, csRef, setCs, requestAutoDraft: ai.requestAutoDraft });
   const mapping = useMappingExample();
   const saveMappingExample = () => mapping.saveMappingExample(cs, ai.aiUsedRef.current);
   const save = useSheetSave({ csRef, importSourceRef, reviewedRef, lastSavedRef, aiDraftedRef: ai.aiDraftedRef });
@@ -85,6 +88,7 @@ export function useCaseStudyEditor() {
     setMapError("");
     ai.resetAi();
     cms.resetCms();
+    truth.reset();
     setCs(EMPTY_REVAMP);
     mapping.setSourceText("");
     mapping.setOriginalMapped(null);
@@ -133,6 +137,7 @@ export function useCaseStudyEditor() {
     reviewedRef.current = false;
     lastSavedRef.current = "";
     cms.resetCms(); // a new client gets its own CMS draft
+    truth.reset(); // and is checked against its own data
     save.setSaveState("idle");
     return "switched";
   };
@@ -165,8 +170,17 @@ export function useCaseStudyEditor() {
       ai.setAiDrafted([]);
       ai.setAiState("idle");
     }
+    // A saved client with CallboxOne numbers: verify its text against them.
+    if (r.stored?.callboxone) truth.start();
     if (pendingFields(sheet).size > 0) ai.requestAutoDraft();
     return true;
+  };
+
+  // The import panel applied CallboxOne numbers (after HubSpot's facts): verify the text against
+  // them, then the AI drafts the empty fields from the data.
+  const onImported = () => {
+    truth.start();
+    ai.requestAutoDraft();
   };
 
   // A live import or saved data was applied: the sheet now belongs to that client.
@@ -282,6 +296,13 @@ export function useCaseStudyEditor() {
     canDraft,
     draftWithAi: ai.draftWithAi,
     requestAutoDraft: ai.requestAutoDraft,
+    onImported,
+    truthActive: truth.active,
+    truthFindings: truth.findings,
+    truthKeptCount: truth.keptCount,
+    keepTruthFinding: truth.keep,
+    removeTruthFindings: truth.remove,
+    dismissTruthCheck: truth.reset,
     markReviewed,
     cmsState: cms.cmsState,
     cmsMsg: cms.cmsMsg,

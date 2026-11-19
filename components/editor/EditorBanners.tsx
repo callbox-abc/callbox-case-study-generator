@@ -3,7 +3,88 @@
 // Status banners under the toolbar: AI drafting, the CMS draft, notices and mapping errors.
 // All carry .app-toolbar, so they stay out of the PDF.
 
+import type { TextFinding } from "@/lib/truthCheck";
 import { BORDER_STRONG, CARD_BG, MUTED, MUTED_LIGHT, TEXT, YELLOW, btnGhost } from "@/components/editor/theme";
+
+// "Verifying truth data": sentences whose numbers aren't in the CallboxOne data (the source of
+// truth), each with Remove (the AI redrafts an emptied field from the data) or Keep (a number that
+// isn't a campaign result). Shown once CallboxOne numbers are on the sheet.
+export function TruthBanner({
+  active,
+  findings,
+  keptCount,
+  onRemove,
+  onKeep,
+  onDismiss,
+}: {
+  active: boolean;
+  findings: TextFinding[];
+  keptCount: number;
+  onRemove: (fs: TextFinding[]) => void;
+  onKeep: (f: TextFinding) => void;
+  onDismiss: () => void;
+}) {
+  if (!active) return null;
+  const n = findings.length;
+  const small: React.CSSProperties = { ...btnGhost, padding: "4px 10px", fontSize: 12 };
+  return (
+    <div
+      className="app-toolbar"
+      role="status"
+      style={{
+        maxWidth: 1100,
+        margin: "10px auto 0",
+        padding: "10px 16px",
+        borderRadius: 8,
+        border: "1px solid " + (n ? YELLOW : BORDER_STRONG),
+        background: CARD_BG,
+        color: MUTED_LIGHT,
+        fontSize: 13,
+      }}
+    >
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+        <span>
+          <b style={{ color: TEXT }}>Verifying truth data:</b>{" "}
+          {n
+            ? `${n} sentence${n === 1 ? "" : "s"} in the text ${n === 1 ? "has" : "have"} numbers that aren't in the CallboxOne data, the source of truth. Remove ${n === 1 ? "it" : "them"} (the AI redrafts an emptied field from the data), or keep a number that isn't a campaign result.`
+            : `every number in the text matches the CallboxOne data${
+                keptCount ? `, apart from ${keptCount} sentence${keptCount === 1 ? "" : "s"} kept on purpose` : ""
+              }.`}
+        </span>
+        <span style={{ display: "flex", gap: 8 }}>
+          {n > 1 && (
+            <button onClick={() => onRemove(findings)} style={small}>
+              Remove all
+            </button>
+          )}
+          <button onClick={onDismiss} style={small}>
+            {n ? "Keep all" : "Dismiss"}
+          </button>
+        </span>
+      </div>
+      {n > 0 && (
+        <ul style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 6 }}>
+          {findings.map((f) => (
+            <li key={f.path + "|" + f.sentence} style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+              <span style={{ flex: "1 1 360px", minWidth: 0 }}>
+                <span style={{ color: MUTED }}>{f.label}:</span> “{f.sentence}”{" "}
+                <span style={{ color: YELLOW }}>(not in CallboxOne: {f.numbers.join(", ")})</span>
+              </span>
+              <span style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => onRemove([f])} style={small}>
+                  Remove
+                </button>
+                <button onClick={() => onKeep(f)} style={small}>
+                  Keep
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 export function AiBanner({
   aiState,

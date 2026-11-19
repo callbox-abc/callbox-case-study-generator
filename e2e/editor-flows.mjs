@@ -7,6 +7,8 @@
 // stale notice, tab title not reset). The run.mjs runner also compares the whole recording with
 // e2e/editor-flows.snapshot.json, so any other change in behavior shows up as a diff.
 
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { Document, Packer, Paragraph } from "docx";
 
 /* --------------------------------- mocks --------------------------------- */
@@ -24,7 +26,21 @@ const recentEntry = (acct, name, headline) => ({
   cmsDraft: null,
   sheet: { data: sheetOf(name, headline), reviewed: false, aiDrafted: [], savedAt: "2026-11-18T00:00:00Z" },
 });
-const RECENT = [recentEntry(111, "Acme Corp", "Acme Saved Headline"), recentEntry(222, "Beta Inc", "Beta Saved Headline")];
+// A client with CallboxOne numbers (117,570 emails delivered) whose saved text still carries a
+// draft's numbers: "1,622 emails" conflicts, "a 40-person IT team" isn't a campaign result.
+const gamma = {
+  ...recentEntry(333, "Gamma Ltd", "Gamma Saved Headline"),
+  stored: { hubspot: null, callboxone: { period: { from: "2025-07-01", to: "2026-06-30" } } },
+};
+gamma.sheet.data = {
+  ...gamma.sheet.data,
+  heroStats: [{ value: "117,570", label: "Emails delivered" }, { value: "111", label: "Appointments" }],
+  channels: { rows: [{ name: "Email", activity: "117,570 delivered", appointments: null }] },
+  dek: "Callbox delivered 1,622 emails in the first quarter.",
+  subDek: "The program booked 111 appointments.",
+  situation: { body: ["Gamma runs a 40-person IT team."] },
+};
+const RECENT = [recentEntry(111, "Acme Corp", "Acme Saved Headline"), recentEntry(222, "Beta Inc", "Beta Saved Headline"), gamma];
 
 // Answers one intercepted request; logs the ones the editor sends on its own.
 function mockApi(url, method, body, calls) {
@@ -51,7 +67,7 @@ function mockApi(url, method, body, calls) {
       ? { sheet: b.sheet, drafted: [], droppedSentences: 0, droppedDetails: [], model: "gemini-3.1-pro-preview" }
       : {
           sheet: { ...b.sheet, dek: b.sheet.dek || "AI dek from the data." },
-          drafted: ["Dek"],
+          drafted: b.sheet.dek ? [] : ["Dek"],
           droppedSentences: 1,
           droppedDetails: [{ text: "It added $1M.", reason: "money claim" }],
           model: "gemini-3.1-pro-preview",
@@ -81,7 +97,7 @@ function mockApi(url, method, body, calls) {
 
 /* --------------------------------- flows --------------------------------- */
 
-export async function runEditorFlows({ cdp, appUrl, user, pass, cpuSlowdown = 1, log = () => {} }) {
+export async function runEditorFlows({ cdp, appUrl, user, pass, cpuSlowdown = 1, screenshotDir = null, log = () => {} }) {
   const calls = [];
   const errors = [];
   const steps = [];
@@ -169,6 +185,12 @@ export async function runEditorFlows({ cdp, appUrl, user, pass, cpuSlowdown = 1,
   const record = async (step, extra = {}) => {
     const s = { step, ...(await snap()), calls: sortCalls(calls.splice(0)), ...extra };
     steps.push(s);
+    // Optional (E2E_SCREENSHOTS=1): what the step looked like, for reviewing UI and CI failures.
+    if (screenshotDir) {
+      const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+      const file = `${String(steps.length).padStart(2, "0")} ${step.replace(/[^\w.-]+/g, " ").trim()}.png`;
+      writeFileSync(join(screenshotDir, file), Buffer.from(shot.result.data, "base64"));
+    }
     log(`  ${step}`);
     return s;
   };
@@ -374,6 +396,42 @@ export async function runEditorFlows({ cdp, appUrl, user, pass, cpuSlowdown = 1,
   if (await dialogOpen()) await click(/Exit without saving/);
   await waitFor(onStart, "the start screen");
   await record("G5. back on the start screen");
+
+  /* ---------------- H. verifying truth data (CallboxOne is the source of truth) ---------------- */
+  // Clicks a button inside the truth banner's list item that contains the given text.
+  const clickInFinding = async (text, label) => {
+    const find = `[...document.querySelectorAll('[role=status] li')].find(li => li.textContent.includes(${js(text)}))`;
+    await waitFor(page(`!!${find}`), `the finding "${text}"`);
+    await cdp.evaluate(`[...${find}.querySelectorAll('button')].find(b => b.textContent.trim() === ${js(label)}).click()`);
+  };
+  const truthBanner = (st) => st.banners.find((b) => /^Verifying truth data:/.test(b)) || "";
+  await fromImport();
+  await click(/Gamma Ltd/);
+  await waitFor(shows(/Verifying truth data:/), "the truth check");
+  await waitFor(sent(/\/api\/draft-narrative/), "the AI draft");
+  await waitFor(async () => !(await shows(/Drafting/)()), "the AI draft to finish");
+  s = await record("H1. Gamma loaded: truth data verified");
+  check("truth check flags the draft's number CallboxOne doesn't have", /2 sentences/.test(truthBanner(s)) && /Dek: “Callbox delivered 1,622 emails in the first quarter\.” \(not in CallboxOne: 1,622\)/.test(truthBanner(s)), truthBanner(s));
+  check("truth check passes numbers CallboxOne has", !/111 appointments/.test(truthBanner(s)), truthBanner(s));
+  await clickInFinding("40-person", "Keep");
+  await waitFor(shows(/1 sentence in the text has/), "one finding left");
+  s = await record("H2. kept the 40-person team (not a campaign result)");
+  check("a kept sentence leaves the list and stays in the text", !/40-person/.test(truthBanner(s)) && (await cdp.evaluate(`document.body.innerText.includes("Gamma runs a 40-person IT team.") || [...document.querySelectorAll('textarea')].some(t => t.value.includes("40-person"))`)));
+  await clickInFinding("1,622", "Remove");
+  await waitFor(sent(/\/api\/draft-narrative/), "the AI redraft of the emptied dek");
+  await waitFor(page(`document.querySelector('[placeholder="Dek: who the client is and what changed"]')?.value === "AI dek from the data."`), "the redrafted dek");
+  s = await record("H3. removed 1,622: the AI redrafts the dek from the data");
+  check("Remove takes the sentence out and the AI redrafts the emptied field", s.dek === "AI dek from the data." && callsOf(s, /draft-narrative/).length === 1);
+  check(
+    "verified: no number left that CallboxOne doesn't back, and the kept sentence is counted",
+    /every number in the text matches the CallboxOne data, apart from 1 sentence kept on purpose\./.test(truthBanner(s)),
+    truthBanner(s)
+  );
+  await startOver();
+  if (await dialogOpen()) await click(/Exit without saving/);
+  await waitFor(onStart, "the start screen");
+  s = await record("H4. back on the start screen");
+  check("the truth check belongs to one case study", !s.banners.some((b) => /Verifying truth data/.test(b)));
 
   check("no requests to unmocked APIs", !steps.some((st) => st.calls.some((c) => c.unmocked)));
   check("no errors in the page", errors.length === 0, errors.join(" | "));

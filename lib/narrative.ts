@@ -185,14 +185,17 @@ export function allowedNumbers(r: RevampCaseStudy): Allowed {
     list.push([a, b]);
     m.set(key, list);
   };
-  const input = narrativeInput(r);
-  const json = JSON.stringify(input);
+  // Only the data counts, not the sheet's existing text: a number that is only in the text (e.g. a
+  // draft's "1,622 emails" when CallboxOne has 117,570) isn't backed, so the AI may not repeat it,
+  // and the truth check (lib/truthCheck.ts) flags it. CallboxOne is the source of truth.
+  const { existingText: _text, ...data } = narrativeInput(r);
+  const json = JSON.stringify(data);
   for (const m of json.match(NUM) || []) {
     if (m.endsWith("%")) basePct.add(norm(m));
     else base.add(norm(m));
   }
-  collectFields(input, /pct$/i, basePct);
-  collectFields(input, /times$/i, baseRatio);
+  collectFields(data, /pct$/i, basePct);
+  collectFields(data, /times$/i, baseRatio);
   for (let i = 0; i <= 24; i++) base.add(String(i));
 
   const key: number[] = [];
@@ -242,6 +245,14 @@ function numberOk(sentence: string, m: RegExpMatchArray, A: Allowed): boolean {
   if (tok.endsWith("%") || /^\s*percent/.test(after)) return A.basePct.has(v) || pairInSentence(A.pct.get(v), sentence);
   if (/^\s*(x\b|times\b|-?fold\b)/.test(after)) return A.baseRatio.has(v) || pairInSentence(A.ratio.get(v), sentence);
   return A.base.has(v);
+}
+
+// Split only at sentence ends (punctuation followed by whitespace), so decimals like 2.5 stay whole.
+export const splitSentences = (text: string) => text.split(/(?<=[.!?])\s+/);
+
+// The numbers in a sentence that the data doesn't back, as written ("1,622", "40%").
+export function unbackedNumbers(sentence: string, A: Allowed): string[] {
+  return [...sentence.matchAll(NUM)].filter((m) => !numberOk(sentence, m, A)).map((m) => m[0]);
 }
 
 const stripDashes = (t: string) => t.replace(/\s*—\s*/g, ", ").replace(/\s+-\s+/g, ", ");
