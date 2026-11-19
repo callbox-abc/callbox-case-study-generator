@@ -143,10 +143,30 @@ describe("pdfFileName", () => {
   const name = (over: Partial<{ pdfTitle: string; headline: string; clientName: string }>) =>
     pdfFileName({ pdfTitle: "", headline: "", clientName: "", ...over });
 
-  it("is CS_ plus the headline, words joined by dashes", () => {
+  it("is CS_ plus the headline, words joined by dashes, small words left out", () => {
     expect(name({ headline: "B2B Company Drives 503 Sales-Qualified Appointments in the Philippines Over 29 Months" })).toBe(
-      "CS_B2B-Company-Drives-503-Sales-Qualified-Appointments-in-the-Philippines-Over-29-Months"
+      "CS_B2B-Company-Drives-503-Sales-Qualified-Appointments-Philippines-Over-29-Months"
     );
+    expect(name({ headline: "How a US-Based SaaS Company Built a Qualified Pipeline Across North America in 9 Months" })).toBe(
+      "CS_How-US-Based-SaaS-Company-Built-Qualified-Pipeline-Across-North-America-9-Months"
+    );
+    expect(name({ headline: "IT Provider Builds Qualified Pipeline Across US Spanish-Speaking Markets With Multilingual Outreach" })).toBe(
+      "CS_IT-Provider-Builds-Qualified-Pipeline-Across-US-Spanish-Speaking-Markets-Multilingual-Outreach"
+    );
+  });
+
+  it("keeps words that carry meaning", () => {
+    expect(name({ headline: "Enterprise MSP Generates 3x More Qualified Meetings Through Targeted Lead Generation" })).toBe(
+      "CS_Enterprise-MSP-Generates-3x-More-Qualified-Meetings-Through-Targeted-Lead-Generation"
+    );
+  });
+
+  it("keeps small words inside hyphenated terms", () => {
+    expect(name({ headline: "A Go-to-Market Win for a Business-to-Business Brand" })).toBe("CS_Go-to-Market-Win-Business-to-Business-Brand");
+  });
+
+  it("keeps the words of a title made only of small words", () => {
+    expect(name({ headline: "Of and To" })).toBe("CS_Of-and-To");
   });
 
   it("uses the PDF Title field first, like the browser tab", () => {
@@ -161,7 +181,7 @@ describe("pdfFileName", () => {
 
   it("has one underscore, right after CS", () => {
     const n = name({ headline: "Snake_case and   extra   spaces - and a dash" });
-    expect(n).toBe("CS_Snake-case-and-extra-spaces-and-a-dash");
+    expect(n).toBe("CS_Snake-case-extra-spaces-dash");
     expect(n.indexOf("_")).toBe(2);
     expect(n.lastIndexOf("_")).toBe(2);
   });

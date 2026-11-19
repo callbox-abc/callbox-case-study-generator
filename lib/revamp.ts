@@ -370,9 +370,20 @@ export function sectionNumbers(r: RevampCaseStudy): Partial<Record<SectionId, nu
 // the-Philippines-Over-29-Months". Same title as the browser tab: the PDF Title field, else the
 // headline. Punctuation goes, accented letters stay, and it stops at a whole word near 120 chars.
 const NOT_WORD = new RegExp("[^\\p{L}\\p{N}]+", "u");
+// Small words left out of the file name, as in URL slugs: articles, conjunctions and short
+// prepositions. Words that carry meaning ("Over 29 Months", "Through", "Across", "More") stay.
+// Only standalone words are dropped: "Go-to-Market" and "Business-to-Business" keep their "to".
+const FILE_STOP_WORDS = new Set(["a", "an", "the", "and", "or", "but", "nor", "of", "in", "on", "at", "to", "for", "by", "with", "from"]);
 export function pdfFileName(r: Pick<RevampCaseStudy, "pdfTitle" | "headline" | "clientName">): string {
-  const title = r.pdfTitle.trim() || r.headline.trim() || r.clientName.trim();
-  const words = title.replace(/['’]/g, "").split(NOT_WORD).filter(Boolean);
+  const title = (r.pdfTitle.trim() || r.headline.trim() || r.clientName.trim()).replace(/['’]/g, "");
+  const parts = (t: string) => t.split(NOT_WORD).filter(Boolean);
+  const isStop = (w: string) => {
+    const p = parts(w);
+    return p.length === 1 && FILE_STOP_WORDS.has(p[0].toLowerCase());
+  };
+  const kept = parts(title.split(/\s+/).filter((w) => !isStop(w)).join(" "));
+  // A title made only of small words keeps them.
+  const words = kept.length ? kept : parts(title);
   let name = "";
   for (const w of words) {
     const next = name ? `${name}-${w}` : w;
