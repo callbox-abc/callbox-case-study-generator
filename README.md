@@ -149,6 +149,7 @@ lib/templateSchema.ts              Word template fields (drives the .docx and it
 lib/templateParse.ts               Reads a filled template word for word (no AI)
 lib/extract.ts                     .docx (mammoth) and .pdf (pdf.js from cdnjs) text extraction
 tests/                             Unit tests for the pure functions (npm test)
+e2e/                               End-to-end test of the editor in headless Chrome (npm run e2e)
 scripts/build-template.mjs         Builds public/callbox-case-study-template.docx
 supabase/app_cache.sql             Table for the snapshot, recent imports and saved sheets
 proxy.ts                           Shared login (Basic Auth) for every page and API route
@@ -204,6 +205,8 @@ Push to `main`; Vercel builds and deploys. Schedules come from `vercel.json`. Af
 | `npm run build` | Production build |
 | `npm run lint` | Type check (`tsc --noEmit`) |
 | `npm test` | Unit tests (Vitest), about 1 second; `npm run test:watch` reruns them on save |
+| `npm run e2e` | End-to-end test of the editor in headless Chrome: builds, runs, checks, compares with the snapshot |
+| `npm run e2e:update` | Same, then saves the run as the new snapshot (only when every check passes) |
 | `npm run template` | Rebuild `public/callbox-case-study-template.docx` after changing `lib/templateSchema.ts` |
 
 ## Tests
@@ -223,6 +226,31 @@ Run `npm test` before merging anything that touches `lib/`.
 | `templateParse.test.ts` | The Word template is read word for word; the shipped `.docx` is recognized and reads as empty |
 
 `tests/fixtures.ts` holds a Netrix-shaped sheet with the numbers the tests reason about.
+
+### End-to-end test (`npm run e2e`)
+
+Drives the real editor in headless Chrome: builds the app, starts it with a throwaway login, and
+mocks every `/api/*` answer in the browser, so Supabase, HubSpot, CallboxOne, Gemini and WordPress
+are never called. About 15 seconds plus the build. Needs Node 22+ and Chrome, Chromium or Edge
+(set `CHROME_PATH` if it isn't found). Run it before merging anything that touches `app/page.tsx`,
+`hooks/` or `components/editor/`.
+
+It walks 30 steps: the Word template, a mapped document and its PDF, a saved client with the AI
+draft, Save, Mark as reviewed, the Start over / Back / tab-close guards, switching clients, sending
+to the CMS and updating the draft, the PDF file name, a blank sheet, and a second client after a
+CMS send. It fails on either of two things:
+
+- **Checks** (33, in `e2e/editor-flows.mjs`): named rules, for example "Beta never overwrites
+  Acme's draft" or "browser Back asks to save". These include the four bugs this test found
+  (CMS draft id carried into the next case study, Back swallowed after Start over, stale notice,
+  tab title not reset).
+- **Snapshot** (`e2e/editor-flows.snapshot.json`): what each step showed (screen, tab title,
+  toolbar, banners, dialog, fields) and every request the page sent. Any difference is printed per
+  step. When a change is intended (new button, reworded banner), run `npm run e2e:update` and
+  review the snapshot diff in the PR.
+
+`node e2e/run.mjs --no-build` reuses the last build while iterating. Logs and the last recording
+go to `e2e/.out/` (git-ignored).
 
 ## Troubleshooting
 
