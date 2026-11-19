@@ -1,6 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
+import { useRef, useState } from "react";
 import EditableField from "@/components/EditableField";
 import {
   RevampCaseStudy,
@@ -33,16 +34,101 @@ type Up = (fn: (d: RevampCaseStudy) => void) => void;
 /* ----------------------------- small building blocks ----------------------------- */
 
 function T({
-  value, onChange, placeholder, multiline, style, dark,
+  value, onChange, placeholder, multiline, style, dark, autoFocus, caret, onBlur,
 }: {
   value: string; onChange: (v: string) => void; placeholder?: string; multiline?: boolean;
-  style?: React.CSSProperties; dark?: boolean;
+  style?: React.CSSProperties; dark?: boolean; autoFocus?: boolean; caret?: number; onBlur?: () => void;
 }) {
   return (
     // Empty fields are edit-only: "no-print" keeps their placeholder out of the PDF text layer
     // and out of the pre-print height measurement.
     <div className={(dark ? "ef ef-dark" : "ef") + (value?.trim() ? "" : " no-print")}>
-      <EditableField value={value} onChange={onChange} placeholder={placeholder} multiline={multiline} style={style} />
+      <EditableField value={value} onChange={onChange} placeholder={placeholder} multiline={multiline} style={style}
+        autoFocus={autoFocus} caret={caret} onBlur={onBlur} />
+    </div>
+  );
+}
+
+// The headline with its highlight phrase in yellow, as the PDF and the live page show it.
+function marked(text: string, highlight: string): React.ReactNode {
+  const at = highlight ? text.indexOf(highlight) : -1;
+  if (at < 0) return text;
+  return (
+    <>
+      {text.slice(0, at)}
+      <mark style={{ background: C.yellow, color: C.dark, padding: "0 0.08em" }}>{highlight}</mark>
+      {text.slice(at + highlight.length)}
+    </>
+  );
+}
+
+// Text offset inside `root` of the point clicked, so editing starts where the writer clicked.
+function caretAt(root: HTMLElement, x: number, y: number): number | null {
+  const doc = document as Document & {
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+  };
+  let node: Node | null = null;
+  let offset = 0;
+  const pos = doc.caretPositionFromPoint?.(x, y);
+  if (pos) {
+    node = pos.offsetNode;
+    offset = pos.offset;
+  } else {
+    const range = doc.caretRangeFromPoint?.(x, y);
+    if (range) {
+      node = range.startContainer;
+      offset = range.startOffset;
+    }
+  }
+  if (!node || !root.contains(node)) return null;
+  const before = document.createRange();
+  before.setStart(root, 0);
+  before.setEnd(node, offset);
+  return before.toString().length;
+}
+
+// On screen the headline shows its highlight like the PDF. Clicking it (or tabbing to it) turns it
+// into the plain text field, with the caret where it was clicked; leaving the field shows the
+// highlight again. Without a highlight that matches, it is always the plain text field.
+function HeadlineField({ value, highlight, onChange, style }: {
+  value: string; highlight: string; onChange: (v: string) => void; style: React.CSSProperties;
+}) {
+  const [caret, setCaret] = useState<number | null>(null); // null: showing the highlight
+  const shown = useRef<HTMLDivElement>(null);
+  if (!highlight || caret !== null) {
+    return (
+      <T dark value={value} onChange={onChange} placeholder="Headline (H1)" multiline style={style}
+        autoFocus={caret !== null} caret={caret ?? undefined} onBlur={() => setCaret(null)} />
+    );
+  }
+  return (
+    <div className="ef ef-dark">
+      {/* Laid out like the textarea it replaces, so switching between the two moves nothing
+          (checked in Chrome: same height and position within a pixel):
+          - inline-block with overflow hidden: like a textarea, its baseline is the bottom edge,
+            so the line under it gets the same extra space;
+          - 2px padding, plus 4px more at the bottom: EditableField sizes a textarea to its
+            scrollHeight, which already includes the padding, so a textarea is 4px taller than
+            its text. */}
+      <div
+        ref={shown}
+        role="button"
+        tabIndex={0}
+        aria-label="Headline. Click to edit."
+        title="Click to edit the headline"
+        onMouseDown={(e) => {
+          e.preventDefault(); // no text selection or focus on the display copy: the field takes over
+          setCaret((shown.current && caretAt(shown.current, e.clientX, e.clientY)) ?? value.length);
+        }}
+        onFocus={() => setCaret(value.length)}
+        style={{
+          ...style, display: "inline-block", width: "100%", padding: "2px 2px 6px", overflow: "hidden",
+          whiteSpace: "pre-wrap", overflowWrap: "break-word", cursor: "text",
+        }}
+      >
+        {marked(value, highlight)}
+      </div>
     </div>
   );
 }
@@ -291,16 +377,10 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
 
       {/* Print shows the highlight; on screen the headline is edited as plain text. */}
       <h1 className="print-only" style={{ ...h2(true), fontSize: 36, lineHeight: 1.04, margin: "0 0 16px", maxWidth: 620 }}>
-        {hl ? (
-          <>
-            {r.headline.slice(0, r.headline.indexOf(hl))}
-            <mark style={{ background: C.yellow, color: C.dark, padding: "0 0.08em" }}>{hl}</mark>
-            {r.headline.slice(r.headline.indexOf(hl) + hl.length)}
-          </>
-        ) : r.headline}
+        {marked(r.headline, hl)}
       </h1>
       <div className="no-print" style={{ marginBottom: 6 }}>
-        {sk("headline", 2, true, true) ?? <T dark value={r.headline} onChange={(v) => up((d) => { d.headline = v; })} placeholder="Headline (H1)" multiline
+        {sk("headline", 2, true, true) ?? <HeadlineField value={r.headline} highlight={hl} onChange={(v) => up((d) => { d.headline = v; })}
           style={{ ...h2(true), fontSize: 36, lineHeight: 1.04, maxWidth: 620 }} />}
         <div style={{ display: "flex", gap: 8, alignItems: "baseline", marginTop: 6 }}>
           <Mono color={C.onDarkMute}>Highlight</Mono>
