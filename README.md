@@ -81,9 +81,15 @@ between steps:
 
 1. **rank**: one `list_team_leaders` call for the candidates, then `get_hubspot_report` per client
    (same appointment count as `get_report_stats` at ~1.5KB instead of ~800KB).
-2. **select**: the top 5 that match a HubSpot company with deals (this drops internal campaigns and
-   guarantees a name and logo). Lookups run 2 at a time; HubSpot 429s are retried.
-3. **import**: each pick's full HubSpot profile and CallboxOne quarters, lists and funnel.
+2. **select**: the top 5 that match a HubSpot company with deals (this drops internal campaigns).
+   Lookups run 2 at a time; HubSpot 429s are retried. **No guessing**: a campaign is linked to a
+   HubSpot company only when that is certain: the only company with deals, or, among several, the
+   only one named exactly like the client. A client's offices can be separate HubSpot records with
+   the same name (Company 1 Brazil and Company 1 Korea); then none is linked, the card says "Several
+   HubSpot matches: none linked", and its client facts are left for the team (search the client to
+   pick the record, or fill them in). One card per HubSpot company; a campaign with no linked
+   company is its own card. `chooseCompany` and `pickKey` in `lib/topClients.ts`.
+3. **import**: each pick's full HubSpot profile (when linked) and CallboxOne quarters, lists and funnel.
 4. **publish**: the snapshot replaces last week's.
 
 That week's job row is the lock, so a second start in the same week does nothing. While it runs, the
@@ -248,13 +254,14 @@ are never called. About 15 seconds plus the build. Needs Node 22+ and Chrome, Ch
 (set `CHROME_PATH` if it isn't found). Run it before merging anything that touches `app/page.tsx`,
 `hooks/` or `components/editor/`.
 
-It walks 35 steps: the Word template, a mapped document and its PDF, a saved client with the AI
+It walks 37 steps: the Word template, a mapped document and its PDF, a saved client with the AI
 draft, Save, Mark as reviewed, the Start over / Back / tab-close guards, switching clients, sending
 to the CMS and updating the draft, the PDF file name, a blank sheet, a second client after a CMS
-send, and verifying truth data (a stale number flagged and removed, then redrafted from the data; a
-non-campaign number kept). It fails on either of two things:
+send, verifying truth data (a stale number flagged and removed, then redrafted from the data; a
+non-campaign number kept), and a weekly card whose HubSpot match was ambiguous (no facts filled,
+the reason shown). It fails on either of two things:
 
-- **Checks** (41, in `e2e/editor-flows.mjs`): named rules, for example "Beta never overwrites
+- **Checks** (43, in `e2e/editor-flows.mjs`): named rules, for example "Beta never overwrites
   Acme's draft" or "truth check flags the draft's number CallboxOne doesn't have". These include
   the four bugs this test found (CMS draft id carried into the next case study, Back swallowed after
   Start over, stale notice, tab title not reset).
@@ -276,7 +283,7 @@ jobs on Ubuntu with Node 24:
 | Job | Runs | Time |
 |---|---|---|
 | Type check and unit tests | `npm ci`, `npm run lint`, `npm test` | about 1 minute |
-| Editor end-to-end (headless Chrome) | `npm ci`, `npm run e2e` (builds the app, then the 35 steps) | about 2 to 3 minutes |
+| Editor end-to-end (headless Chrome) | `npm ci`, `npm run e2e` (builds the app, then the 37 steps) | about 2 to 3 minutes |
 
 No secrets are needed: the e2e test mocks every API call. When the e2e job fails, its logs, a
 screenshot of every step and the last recording are attached to the run as the `e2e-output`

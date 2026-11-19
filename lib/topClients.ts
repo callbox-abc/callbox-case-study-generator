@@ -52,6 +52,9 @@ export type TopClient = {
   campaign: TopCampaign;
   company: ClientCandidate | null;
   stored?: StoredImport;
+  // Several same-name HubSpot companies matched (e.g. a client's offices in different countries), so
+  // none was linked: no HubSpot facts, the team picks the record or fills them in.
+  hubspotAmbiguous?: boolean;
 };
 
 export type TopClientsSnapshot = {
@@ -306,10 +309,34 @@ async function stepRank(st: JobState, deadline: number, checkpoint: () => Promis
 
 /* ---------------------------------- select ---------------------------------- */
 
+// Which HubSpot company a campaign belongs to, only when that is certain. Uncertain facts are left
+// for the team to fill rather than guessed: a client's offices can be separate HubSpot records
+// with the same name (Company 1 Brazil and Company 1 Korea, or LG Electronics and LG Electronics
+// Australia), and taking the one with the most deals would give the Korea campaign Brazil's
+// headquarters, client-since date and contact.
+//   one company with deals                      -> that company
+//   several, one of them named exactly like the client -> that one
+//   several otherwise                           -> none (ambiguous): the card shows the name only
+export type CompanyChoice = { company: ClientCandidate | null; ambiguous: boolean; name: string };
+const plainName = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+export function chooseCompany(found: ClientCandidate[], term: string): CompanyChoice {
+  if (found.length <= 1) return { company: found[0] ?? null, ambiguous: false, name: found[0]?.name ?? term };
+  const exact = found.filter((c) => plainName(c.name) === plainName(term));
+  if (exact.length === 1) return { company: exact[0], ambiguous: false, name: exact[0].name };
+  const names = new Set(found.map((c) => c.name));
+  return { company: null, ambiguous: true, name: names.size === 1 ? found[0].name : term };
+}
+
+// One card per HubSpot company (several campaigns on one record are one client); a campaign with
+// no linked company is its own card, since campaign ids are unique.
+export const pickKey = (campaign: { clientAccountId: number }, company: ClientCandidate | null) =>
+  company ? `company:${company.companyId}` : `campaign:${campaign.clientAccountId}`;
+
 // The HubSpot company for a CallboxOne client: by client name, else by the campaign code letters
 // (NETRIX25071 -> "NETRIX"), skipping offer labels that are not company names.
-async function companyFor(c: CandidateRow): Promise<ClientCandidate | null> {
-  if (!process.env.HUBSPOT_TOKEN) return null;
+async function companyFor(c: CandidateRow): Promise<CompanyChoice> {
+  const none: CompanyChoice = { company: null, ambiguous: false, name: c.clientName };
+  if (!process.env.HUBSPOT_TOKEN) return none;
   const terms: string[] = [];
   if (!OFFER_LABEL.test(c.clientName)) terms.push(c.clientName.replace(/\s*[-(].*$/, "").trim());
   const letters = /^[A-Za-z]+/.exec(c.campaignName)?.[0] ?? "";
@@ -317,9 +344,9 @@ async function companyFor(c: CandidateRow): Promise<ClientCandidate | null> {
   for (const t of terms) {
     if (t.length < 2) continue;
     const found = await searchClients(t).catch(() => []);
-    if (found.length) return found[0];
+    if (found.length) return chooseCompany(found, t);
   }
-  return null;
+  return none;
 }
 
 async function stepSelect(st: JobState) {
@@ -328,12 +355,12 @@ async function stepSelect(st: JobState) {
   const shortlist = ranked.slice(0, TOP * 5); // room for the ones skipped below
   // Two lookups at a time: firing all of them at once hit HubSpot's search rate limit, and the
   // rejected lookups looked like "no match" (no name, no logo).
-  const companies: (ClientCandidate | null)[] = new Array(shortlist.length).fill(null);
+  const choices: CompanyChoice[] = shortlist.map((m) => ({ company: null, ambiguous: false, name: m.clientName }));
   await pool(
     shortlist.map((m, i) => ({ m, i })),
     2,
     async ({ m, i }) => {
-      companies[i] = await companyFor(m).catch(() => null);
+      choices[i] = await companyFor(m).catch(() => choices[i]);
     }
   );
   const picks: TopClient[] = [];
@@ -341,20 +368,20 @@ async function stepSelect(st: JobState) {
   st.skippedUnnamed = 0;
   shortlist.forEach((m, i) => {
     if (picks.length >= TOP) return;
-    const company = companies[i];
-    // A top client must be a HubSpot company with deals (every paying client is): this drops
-    // internal campaigns (e.g. "CS DVO NAM MKTG Reactivation") and guarantees a name and logo.
-    if (!company) {
+    const { company, ambiguous, name } = choices[i];
+    // A top client must match a HubSpot company with deals (every paying client does): this drops
+    // internal campaigns (e.g. "CS DVO NAM MKTG Reactivation"). Several same-name companies with
+    // deals is a client too (its offices): listed by name, with no HubSpot company linked.
+    if (!company && !ambiguous) {
       st.skippedUnnamed += 1;
       return;
     }
-    // The same company twice (e.g. several Netrix campaigns under different client ids) is listed once.
-    const key = company?.companyId || (/^[A-Za-z]+/.exec(m.campaignName)?.[0] ?? String(m.clientId)).toLowerCase();
+    const key = pickKey(m, company);
     if (seen.has(key)) return;
     seen.add(key);
     const { startIso, sql, conv, top, ...campaign } = m;
     picks.push({
-      name: company?.name || m.clientName,
+      name: company?.name || name,
       domain: company?.domain || "",
       months: Math.max(1, Math.round((now.getTime() - Date.parse(startIso)) / (30.44 * 864e5))),
       sql30: sql,
@@ -362,6 +389,7 @@ async function stepSelect(st: JobState) {
       topChannel: top,
       campaign,
       company,
+      ...(ambiguous ? { hubspotAmbiguous: true } : {}),
     });
   });
   st.picks = picks;
