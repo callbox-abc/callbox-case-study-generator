@@ -13,11 +13,38 @@ result goes out as a PDF or as a WordPress draft on the CMS.
 ### Start screen (in priority order)
 
 1. **Start from HubSpot + CallboxOne**: opens the editor with the import panel.
-2. **Drop a document**: a `.docx` or `.pdf` draft is mapped into the layout by the AI. A filled
+2. **Start an unbranded case study**: the same import panel, for a case study that shows the campaign's
+   numbers only (see "Unbranded case studies" below).
+3. **Drop a document**: a `.docx` or `.pdf` draft is mapped into the layout by the AI. A filled
    **Case Study Template** is read field by field instead, with no AI involved.
-3. **Start with a blank case study**.
-4. **Download Case Study Template**: a Word file with every field labeled
+4. **Start with a blank case study**.
+5. **Download Case Study Template**: a Word file with every field labeled
    (`public/callbox-case-study-template.docx`).
+
+### Unbranded case studies
+
+No real client detail appears anywhere: not on the sheet, in the AI's input, the PDF, the CMS draft or
+the saved copy. Rules in `lib/unbranded.ts` (one place for the import, editor, AI route and CMS export).
+
+- **Shown**: appointments (total, by channel, by quarter), channel activity, event registrations, lists
+  and records worked (counts), the seniority mix of who said yes, the funnel, the target market, the
+  period, and Callbox's recommendations.
+- **Never shown**: client name, logo, industry, HQ, company size, client since, program growth, the
+  Primary contact section (role, lead source), solution lines, quote, the campaign code (stripped from
+  the methodology note).
+- **Import**: HubSpot is still searched and read, only to find the campaign and its start month; none
+  of its facts reach the sheet. CallboxOne's patch keeps only campaign facts.
+- **AI**: the sheet is stripped before it leaves the browser (and again on the server); the prompt calls
+  the client "a B2B company" and never drafts the contact section.
+- **Client details check**: the sheet's text is checked against the words that name the client (HubSpot
+  name, website, HQ, CallboxOne client name, campaign code). A hit can only come from typed or pasted
+  text. Each finding has **Remove** or **Keep**; until all are handled, **Download PDF** and **Send to CMS**
+  are disabled and Ctrl+P prints a notice instead of the sheet. `hooks/useIdentityCheck.ts`.
+- **Saved apart**: a client's unbranded sheet and CMS draft are kept separately from its branded ones
+  (`unbrandedSheet` / `unbrandedCmsDraft` on the recent entry), so neither overwrites the other. A live
+  pull clears only the saved sheet of the kind being pulled.
+- The flag is `sheet.unbranded` (saved with the sheet, not an ACF field). The website template has no
+  unbranded flag yet.
 
 ### Import panel
 

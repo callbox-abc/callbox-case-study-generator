@@ -24,6 +24,7 @@ export function EditorToolbar({
   hasCmsDraft,
   onSendToCms,
   onPrint,
+  exportBlocked = "",
 }: {
   cs: RevampCaseStudy;
   onStartOver: () => void;
@@ -40,6 +41,8 @@ export function EditorToolbar({
   hasCmsDraft: boolean;
   onSendToCms: () => void;
   onPrint: () => void;
+  // Why Download PDF and Send to CMS are blocked (an unbranded case study that names the client).
+  exportBlocked?: string;
 }) {
   const [copied, setCopied] = useState<string | null>(null);
   return (
@@ -70,6 +73,14 @@ export function EditorToolbar({
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <FileText size={15} style={{ color: YELLOW }} />
           <b style={{ fontSize: 14 }}>Case Study Editor</b>
+          {cs.unbranded && (
+            <span
+              title="Campaign numbers only: no client name, HQ, size or other client details"
+              style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: YELLOW, border: "1px solid " + YELLOW, borderRadius: 999, padding: "2px 8px" }}
+            >
+              Unbranded
+            </span>
+          )}
         </div>
       </div>
       <div style={{ display: "flex", gap: 8 }}>
@@ -108,12 +119,18 @@ export function EditorToolbar({
         )}
         <button
           onClick={onSendToCms}
-          disabled={cmsState === "sending"}
-          style={{ ...btnGhost, padding: "8px 16px", fontSize: 12, opacity: cmsState === "sending" ? 0.6 : 1 }}
+          disabled={cmsState === "sending" || Boolean(exportBlocked)}
+          title={exportBlocked || undefined}
+          style={{ ...btnGhost, padding: "8px 16px", fontSize: 12, opacity: cmsState === "sending" || exportBlocked ? 0.6 : 1 }}
         >
           {cmsState === "sending" ? "Sending…" : hasCmsDraft ? "Update CMS draft" : "Send to CMS as draft"}
         </button>
-        <button onClick={onPrint} style={{ ...btnPrimary, padding: "8px 20px", fontSize: 12 }}>
+        <button
+          onClick={onPrint}
+          disabled={Boolean(exportBlocked)}
+          title={exportBlocked || undefined}
+          style={{ ...btnPrimary, padding: "8px 20px", fontSize: 12, ...(exportBlocked ? { opacity: 0.5, cursor: "not-allowed" } : {}) }}
+        >
           Download PDF
         </button>
       </div>

@@ -1,9 +1,14 @@
 // Shape of the "Case Study: Revamp" ACF field group (GraphQL type CaseStudyRevamp).
 // camelCase here; toAcfPayload() converts to the ACF field names WordPress expects over REST.
 
+import { exportable } from "@/lib/unbranded";
+
 export type TitledItem = { title: string; body: string };
 
 export type RevampCaseStudy = {
+  // An unbranded case study: the campaign's numbers only, no real client details (lib/unbranded.ts).
+  // Set by the start screen's Unbranded card; saved with the sheet. Not an ACF field.
+  unbranded: boolean;
   pdfTitle: string; // browser/print document title only; not stored in ACF
   clientName: string;
   solutionLines: string;
@@ -105,6 +110,7 @@ const heading = (v: unknown) => s(v).replace(SECTION_PREFIX, "");
 export function normalizeRevamp(p: any): RevampCaseStudy {
   p = p && typeof p === "object" ? p : {};
   return {
+    unbranded: p.unbranded === true,
     pdfTitle: s(p.pdfTitle),
     clientName: s(p.clientName),
     solutionLines: s(p.solutionLines),
@@ -187,7 +193,9 @@ const para = (t: string) => ({ paragraph: t });
 const num = (v: number | null) => (v === null || v === 0 ? null : v);
 
 // Converts to the ACF field names from acf-case-study-revamp.json, as WordPress REST expects.
-export function toAcfPayload(r: RevampCaseStudy) {
+// An unbranded case study goes out with its client fields empty, whatever is on the sheet.
+export function toAcfPayload(sheet: RevampCaseStudy) {
+  const r = exportable(sheet);
   return {
     client_name: r.clientName,
     solution_lines: r.solutionLines,
@@ -349,7 +357,8 @@ export function isSectionVisible(r: RevampCaseStudy, id: SectionId): boolean {
   switch (id) {
     case "situation": return Boolean(r.situation.heading || r.situation.body.some(Boolean));
     case "channels": return r.channels.rows.length > 0;
-    case "primaryContact": return Boolean(r.primaryContact.role);
+    // The client's own contact: never on an unbranded case study.
+    case "primaryContact": return !r.unbranded && Boolean(r.primaryContact.role);
     case "howItRan": return r.howItRan.steps.length > 0;
     case "progression": return r.progression.quarters.some((q) => q.count !== null && q.count > 0);
     case "funnel": return loggedFunnelStages(r).length >= 3;
@@ -393,7 +402,8 @@ export function pdfFileName(r: Pick<RevampCaseStudy, "pdfTitle" | "headline" | "
   return `CS_${name || "Case-Study"}`;
 }
 
-export function revampPlainText(r: RevampCaseStudy): string {
+export function revampPlainText(sheet: RevampCaseStudy): string {
+  const r = exportable(sheet);
   const L: string[] = [];
   const push = (...x: string[]) => x.filter(Boolean).forEach((v) => L.push(v));
   push((r.headline || "Untitled case study").toUpperCase(), "");

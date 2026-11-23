@@ -4,10 +4,12 @@ import { attachDraft, getRecent, listRecent, saveRecent, saveSheet } from "@/lib
 // Recently imported clients, shared by everyone using the app (Supabase app_cache).
 //   GET                        -> { recent: RecentClient[] }
 //   GET ?key=<key>             -> { entry: RecentClient | null }   one client, even if not in the list
-//   POST  { client, campaign, hubspot, callboxone }   -> { key }   after a live import
-//   POST ?step=draft { key, id, editLink }            -> { ok }    after "Send to CMS"
+//   POST  { client, campaign, hubspot, callboxone, unbranded? }   -> { key }   after a live import
+//   POST ?step=draft { key, id, editLink, unbranded? }            -> { ok }    after "Send to CMS"
 //   POST ?step=sheet { key, sheet, reviewed, aiDrafted, client, campaign, stored } -> { ok }
-//                                                       the sheet being worked on (autosave)
+//                                                       the sheet being worked on (Save)
+// `unbranded`: the client's unbranded case study, saved apart from its branded one (sheet.unbranded
+// picks the slot for a sheet).
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
@@ -33,10 +35,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
     if (req.nextUrl.searchParams.get("step") === "draft") {
-      await attachDraft(String(body?.key || ""), Number(body?.id), String(body?.editLink || ""));
+      await attachDraft(String(body?.key || ""), Number(body?.id), String(body?.editLink || ""), body?.unbranded === true);
       return NextResponse.json({ ok: true });
     }
-    return NextResponse.json({ key: await saveRecent({ campaign: body?.campaign, company: body?.client, hubspot: body?.hubspot, callboxone: body?.callboxone }) });
+    return NextResponse.json({
+      key: await saveRecent({ campaign: body?.campaign, company: body?.client, hubspot: body?.hubspot, callboxone: body?.callboxone, unbranded: body?.unbranded === true }),
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err?.message || "Could not save the import." }, { status: 500 });
   }

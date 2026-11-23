@@ -10,6 +10,7 @@
 //  4. Em dashes are removed (house style).
 
 import { comparablePeriods, type RevampCaseStudy, type TitledItem } from "@/lib/revamp";
+import { exportable } from "@/lib/unbranded";
 
 export type NarrativeDraft = {
   headline?: string;
@@ -119,8 +120,11 @@ function insights(r: RevampCaseStudy) {
 }
 
 // The facts the model may use: numbers, labels and any writer text already on the sheet.
-export function narrativeInput(r: RevampCaseStudy) {
+// An unbranded sheet is stripped first: the model never sees a client detail, so it can't write one.
+export function narrativeInput(sheet: RevampCaseStudy) {
+  const r = exportable(sheet);
   return {
+    ...(r.unbranded ? { unbranded: true } : {}),
     insights: insights(r),
     existingText: {
       clientName: r.clientName, solutionLines: r.solutionLines, country: r.country,
@@ -509,7 +513,7 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
   // Primary contact: only once a role is on the sheet (from HubSpot or the writer). The role
   // itself is never drafted.
   const PC = draft.primaryContact || {};
-  if (next.primaryContact.role.trim()) {
+  if (!next.unbranded && next.primaryContact.role.trim()) {
     set("Contact heading", next.primaryContact.heading, head(PC.heading, "primaryContact"), (v) => (next.primaryContact.heading = v));
     set("Contact intro", next.primaryContact.intro, g(PC.intro), (v) => (next.primaryContact.intro = v));
     set("Contact context", next.primaryContact.context, g(PC.context), (v) => (next.primaryContact.context = v));
@@ -589,7 +593,7 @@ export function pendingFields(r: RevampCaseStudy): Set<string> {
   want("channels.heading", r.channels.heading, ch);
   want("channels.intro", r.channels.intro, ch);
   want("channels.takeaways", r.channels.takeaways, ch);
-  const pc = !empty(r.primaryContact.role);
+  const pc = !r.unbranded && !empty(r.primaryContact.role);
   want("primaryContact.heading", r.primaryContact.heading, pc);
   want("primaryContact.intro", r.primaryContact.intro, pc);
   want("primaryContact.context", r.primaryContact.context, pc);

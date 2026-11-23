@@ -9,12 +9,17 @@
 //  - Client name: CallboxOne's "client name" is often the offer label, so HubSpot supplies it.
 //  - One AI draft at the end, with both sources on the sheet.
 // Narrative text is never touched; client name and country are filled only when empty.
+//
+// On an unbranded sheet (lib/unbranded.ts), HubSpot is still searched and read, but only to find
+// the campaign and its start month: none of its client facts reach the sheet. CallboxOne's patch
+// is applied without the campaign code, and saved copies are the client's unbranded ones.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EMPTY_REVAMP, MAX_FACTS, applyImportedFacts, mergeFacts, type RevampCaseStudy } from "@/lib/revamp";
 import type { StoredImport, TopClient } from "@/lib/topClients";
 import type { RecentClient } from "@/lib/recentClients";
 import { recentKey } from "@/lib/recentKey";
+import { stripClientDetails, unbrandedCampaignPatch, unbrandedView } from "@/lib/unbranded";
 import { Logo, LogoCredit, RecentClients, TopClients, ago } from "@/components/revamp/TopClients";
 
 export type Campaign = {
@@ -239,7 +244,7 @@ export default function DataImport({
   prepareSwitch,
 }: {
   up: (fn: (d: RevampCaseStudy) => void) => void;
-  sheet: Pick<RevampCaseStudy, "facts" | "clientName" | "country" | "solutionLines" | "primaryContact">;
+  sheet: Pick<RevampCaseStudy, "unbranded" | "facts" | "clientName" | "country" | "solutionLines" | "primaryContact">;
   onClose: () => void;
   onImported?: () => void;
   // The saved-import key of the data now on the sheet, so a CMS draft can be linked to it.
@@ -254,6 +259,10 @@ export default function DataImport({
 }) {
   const sheetRef = useRef(sheet);
   sheetRef.current = sheet;
+  // The kind of case study being made, fixed while the panel is open (it closes on Start over).
+  const unbranded = sheet.unbranded;
+  // Saved copies of the same kind: an unbranded session sees each client's unbranded sheet and CMS draft.
+  const view = (r: RecentClient): RecentClient => (unbranded ? unbrandedView(r) : r);
   const [q, setQ] = useState(sheet.clientName);
   const [start, setStart] = useState("");
   const [clients, setClients] = useState<Client[]>([]);
@@ -274,7 +283,7 @@ export default function DataImport({
   const loadRecent = () =>
     fetch("/api/recent-clients")
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => j?.recent && setRecent(j.recent))
+      .then((j) => j?.recent && setRecent(j.recent.map(view)))
       .catch(() => {});
   useEffect(() => {
     loadRecent();
@@ -345,7 +354,7 @@ export default function DataImport({
     if (prepareSwitch) {
       const ready = await prepareSwitch({ clientAccountId: campaign?.clientAccountId, companyId: client?.companyId });
       if (!ready) return;
-      if (ready === "switched") sheetRef.current = EMPTY_REVAMP; // compare against the clean sheet
+      if (ready === "switched") sheetRef.current = { ...EMPTY_REVAMP, unbranded }; // compare against the clean sheet
     }
     setBusy("import");
     setErr(false);
@@ -367,7 +376,23 @@ export default function DataImport({
     let firstWon: string | null = null;
 
     if (client && stored && !stored.hubspot) lines.push(`No HubSpot profile for ${client.name} in ${storedLabel}.`);
-    if (client && (!stored || stored.hubspot)) {
+    // Unbranded: HubSpot only helps find the campaign's start month; its client facts stay off the sheet.
+    if (client && unbranded && (!stored || stored.hubspot)) {
+      setMsgs([...lines, stored ? `Loading ${client.name}…` : `Reading ${client.name} from HubSpot…`]);
+      try {
+        const prof: any = stored ? stored.hubspot : await hsPost({ step: "client", companyId: client.companyId });
+        profUsed = prof;
+        firstWon = prof.relationship?.firstWon ?? null;
+        lines.push(
+          "Unbranded case study: HubSpot was used only to find the campaign's start. No client details were put on the sheet " +
+            "(name, industry, HQ, size, client since, program growth, primary contact)."
+        );
+      } catch (e: any) {
+        failed = true;
+        lines.push(`HubSpot failed: ${e?.message || "unknown error"}`);
+      }
+    }
+    if (client && !unbranded && (!stored || stored.hubspot)) {
       setMsgs([...lines, stored ? `Loading ${client.name}…` : `Reading ${client.name} from HubSpot…`]);
       try {
         const prof: any = stored ? stored.hubspot : await hsPost({ step: "client", companyId: client.companyId });
@@ -416,8 +441,10 @@ export default function DataImport({
           ? stored.callboxone
           : await pullCampaign(campaign, { start, fallbackStart: firstWon, onProgress: (m) => setMsgs([...lines, m]) });
         resUsed = res;
-        mergeLocal(res.patch.facts);
-        up((d) => applyCampaignPatch(d, res.patch));
+        // Unbranded: campaign facts only (period, market, channels, lists), no campaign code.
+        const patch = unbranded ? unbrandedCampaignPatch(res.patch) : res.patch;
+        mergeLocal(patch.facts);
+        up((d) => applyCampaignPatch(d, patch));
         const notes: string[] = [...(res.notes || [])];
         const began = String(res.period.from).slice(0, 7);
         if (res.startSource === "hubspot") {
@@ -433,14 +460,18 @@ export default function DataImport({
       }
     }
 
+    // Whatever was on the sheet before, an unbranded sheet leaves the import with no client details.
+    if (unbranded) up((d) => Object.assign(d, stripClientDetails(d)));
     if (dropped.size) lines.push(`Not shown, to stay within ${MAX_FACTS} facts (the AI still uses them): ${[...dropped].join(", ")}.`);
     // A live import is saved for everyone ("Recently imported clients"); saved data isn't re-saved.
+    // The raw import keeps HubSpot's profile (the branded case study needs it); an unbranded live
+    // pull clears only the client's unbranded sheet.
     let key: string | null = recentKey(campaign?.clientAccountId, client?.companyId);
     if (!stored && (profUsed || resUsed)) {
       key = await fetch("/api/recent-clients", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client, campaign, hubspot: profUsed, callboxone: resUsed }),
+        body: JSON.stringify({ client, campaign, hubspot: profUsed, callboxone: resUsed, ...(unbranded ? { unbranded: true } : {}) }),
       })
         .then((r) => (r.ok ? r.json() : null))
         .then((j) => j?.key ?? key)
@@ -491,7 +522,7 @@ export default function DataImport({
       setBusy("import");
       saved = await fetch(`/api/recent-clients?key=${encodeURIComponent(key)}`)
         .then((r) => (r.ok ? r.json() : null))
-        .then((j) => j?.entry ?? undefined)
+        .then((j) => (j?.entry ? view(j.entry) : undefined))
         .catch(() => undefined);
       setBusy("");
     }
@@ -537,7 +568,7 @@ export default function DataImport({
     const key = recentKey(ca?.clientAccountId, cl?.companyId);
     return fetch(`/api/recent-clients?key=${encodeURIComponent(key)}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => j?.entry ?? undefined)
+      .then((j) => (j?.entry ? view(j.entry) : undefined))
       .catch(() => undefined);
   };
 
@@ -580,7 +611,7 @@ export default function DataImport({
         />
       )}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <b style={{ color: "#f5f5f7" }}>Import client data</b>
+        <b style={{ color: "#f5f5f7" }}>{unbranded ? "Import campaign numbers (unbranded)" : "Import client data"}</b>
         <input
           id="import-search"
           aria-label="Client name or campaign code"
@@ -612,7 +643,12 @@ export default function DataImport({
 
       {searched && (
         <div style={{ marginTop: 12, display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
-          <Column title="HubSpot client" hint="industry, HQ, size, client since, growth" error={srcErr.hubspot} empty={!clients.length}>
+          <Column
+            title="HubSpot client"
+            hint={unbranded ? "used only to find the campaign: no client details on an unbranded case study" : "industry, HQ, size, client since, growth"}
+            error={srcErr.hubspot}
+            empty={!clients.length}
+          >
             {clients.map((c) => (
               <button key={c.companyId} style={row(client?.companyId === c.companyId)} disabled={busy !== ""} onClick={() => setClient(client?.companyId === c.companyId ? null : c)}>
                 <span>

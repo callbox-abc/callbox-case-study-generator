@@ -4,6 +4,7 @@
 // All carry .app-toolbar, so they stay out of the PDF.
 
 import type { TextFinding } from "@/lib/truthCheck";
+import type { IdentityFinding } from "@/lib/unbranded";
 import { BORDER_STRONG, CARD_BG, MUTED, MUTED_LIGHT, TEXT, YELLOW, btnGhost } from "@/components/editor/theme";
 
 // "Verifying truth data": sentences whose numbers aren't in the CallboxOne data (the source of
@@ -85,6 +86,78 @@ export function TruthBanner({
               <span style={{ flex: "1 1 360px", minWidth: 0 }}>
                 <span style={{ color: MUTED }}>{f.label}:</span> “{f.sentence}”{" "}
                 <span style={{ color: YELLOW }}>(not in CallboxOne: {f.numbers.join(", ")})</span>
+              </span>
+              <span style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => onRemove([f])} style={small}>
+                  Remove
+                </button>
+                <button onClick={() => onKeep(f)} style={small}>
+                  Keep
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// "Client details check" on an unbranded case study: sentences that name the client (its name,
+// website, HQ or campaign code), each with Remove (the AI redrafts an emptied field, without the
+// client's details) or Keep (the word only looks like the client's). Download PDF and Send to CMS
+// stay blocked while any is left.
+export function IdentityBanner({
+  active,
+  findings,
+  keptCount,
+  onRemove,
+  onKeep,
+}: {
+  active: boolean;
+  findings: IdentityFinding[];
+  keptCount: number;
+  onRemove: (fs: IdentityFinding[]) => void;
+  onKeep: (f: IdentityFinding) => void;
+}) {
+  if (!active) return null;
+  const n = findings.length;
+  const small: React.CSSProperties = { ...btnGhost, padding: "4px 10px", fontSize: 12 };
+  const message = n
+    ? `${n} sentence${n === 1 ? "" : "s"} on this unbranded case study ${n === 1 ? "names" : "name"} the client or its details. Remove ${n === 1 ? "it" : "them"} before downloading the PDF or sending to the CMS, or keep a word that only looks like the client's.`
+    : `nothing on the sheet names the client${keptCount ? `, apart from ${keptCount} sentence${keptCount === 1 ? "" : "s"} kept on purpose` : ""}.`;
+  return (
+    <div
+      className="app-toolbar"
+      role="status"
+      style={{
+        maxWidth: 1100,
+        margin: "10px auto 0",
+        padding: "10px 16px",
+        borderRadius: 8,
+        border: "1px solid " + (n ? "#7f1d1d" : BORDER_STRONG),
+        background: CARD_BG,
+        color: MUTED_LIGHT,
+        fontSize: 13,
+      }}
+    >
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+        <span>
+          <b style={{ color: TEXT }}>Client details check:</b> {message}
+        </span>
+        {n > 1 && (
+          <button onClick={() => onRemove(findings)} style={small}>
+            Remove all
+          </button>
+        )}
+      </div>
+      {n > 0 && (
+        <ul style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 6 }}>
+          {findings.map((f) => (
+            <li key={f.path + "|" + f.sentence} style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+              <span style={{ flex: "1 1 360px", minWidth: 0 }}>
+                <span style={{ color: MUTED }}>{f.label}:</span> “{f.sentence}”{" "}
+                <span style={{ color: "#fca5a5" }}>(names the client: {f.terms.join(", ")})</span>
               </span>
               <span style={{ display: "flex", gap: 6 }}>
                 <button onClick={() => onRemove([f])} style={small}>

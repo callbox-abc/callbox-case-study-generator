@@ -945,5 +945,221 @@
     "dek": null,
     "client": null,
     "calls": []
+  },
+  {
+    "step": "J1. unbranded card opens the import panel",
+    "stage": "editor",
+    "title": "Callbox Case Study Generator",
+    "toolbar": [
+      "← Start over",
+      "Copy text",
+      "Hide import",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "",
+    "dek": "",
+    "client": null,
+    "calls": []
+  },
+  {
+    "step": "J2. Delta loaded unbranded",
+    "stage": "editor",
+    "title": "Callbox Case Study Generator",
+    "toolbar": [
+      "← Start over",
+      "Save",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "Truth data verified: every number in the text matches the CallboxOne data.\nDismiss",
+      "Client details check: nothing on the sheet names the client.",
+      "AI drafted 1 field with Gemini 3.1 Pro Preview. Review them before downloading or sending to the CMS. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed\nAI-written: Dek"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "",
+    "dek": "AI dek from the data.",
+    "client": null,
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/api/draft-narrative",
+        "fromDoc": false,
+        "headline": "",
+        "unbranded": true,
+        "leaks": []
+      }
+    ],
+    "leaksOnSheet": []
+  },
+  {
+    "step": "J3. typed the client's name and HQ",
+    "stage": "editor",
+    "title": "Callbox Case Study Generator",
+    "toolbar": [
+      "← Start over",
+      "Save",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft (disabled)",
+      "Download PDF (disabled)"
+    ],
+    "banners": [
+      "Truth data verified: every number in the text matches the CallboxOne data.\nDismiss",
+      "Client details check: 1 sentence on this unbranded case study names the client or its details. Remove it before downloading the PDF or sending to the CMS, or keep a word that only looks like the client's.\nDek: “Delta Co booked 64 appointments from Austin.” (names the client: Delta, Austin)\nRemove\nKeep",
+      "AI drafted 1 field with Gemini 3.1 Pro Preview. Review them before downloading or sending to the CMS. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed\nAI-written: Dek"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "",
+    "dek": "Delta Co booked 64 appointments from Austin. Voice set all 64.",
+    "client": null,
+    "calls": []
+  },
+  {
+    "step": "J4. removed the sentence",
+    "stage": "editor",
+    "title": "Callbox Case Study Generator",
+    "toolbar": [
+      "← Start over",
+      "Save",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "Truth data verified: every number in the text matches the CallboxOne data.\nDismiss",
+      "Client details check: nothing on the sheet names the client.",
+      "AI drafted 1 field with Gemini 3.1 Pro Preview. Review them before downloading or sending to the CMS. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed\nAI-written: Dek"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "",
+    "dek": "Voice set all 64.",
+    "client": null,
+    "calls": []
+  },
+  {
+    "step": "J5. unbranded sent to the CMS",
+    "stage": "editor",
+    "title": "Callbox Case Study Generator",
+    "toolbar": [
+      "← Start over",
+      "Saved (disabled)",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Update CMS draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "Truth data verified: every number in the text matches the CallboxOne data.\nDismiss",
+      "Client details check: nothing on the sheet names the client.",
+      "AI drafted 1 field with Gemini 3.1 Pro Preview. Review them before downloading or sending to the CMS. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed\nAI-written: Dek",
+      "Draft #4321 saved. Review it in WordPress before publishing. Placed under “Callbox Lead Generation Success Stories”.\nOpen in WordPress →"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "",
+    "dek": "Voice set all 64.",
+    "client": null,
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/api/cms/draft",
+        "pageId": null,
+        "headline": "",
+        "unbranded": true,
+        "leaks": []
+      },
+      {
+        "method": "POST",
+        "path": "/api/recent-clients?step=draft",
+        "key": "recent:555",
+        "id": 4321,
+        "unbranded": true
+      },
+      {
+        "method": "POST",
+        "path": "/api/recent-clients?step=sheet",
+        "key": "recent:555",
+        "reviewed": false,
+        "aiDrafted": [
+          "Dek"
+        ],
+        "headline": "",
+        "dek": "Voice set all 64.",
+        "unbranded": true,
+        "leaks": []
+      }
+    ]
+  },
+  {
+    "step": "J6. back on the start screen",
+    "stage": "start",
+    "title": "Callbox Case Study Generator",
+    "toolbar": null,
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": null,
+    "dek": null,
+    "client": null,
+    "calls": []
+  },
+  {
+    "step": "J7. Delta branded loads its own sheet",
+    "stage": "editor",
+    "title": "Delta Branded Headline",
+    "toolbar": [
+      "← Start over",
+      "Save",
+      "Copy text",
+      "Hide import",
+      "Fill empty fields with AI",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [
+      "Truth data verified: every number in the text matches the CallboxOne data.\nDismiss",
+      "AI drafted 1 field with Gemini 3.1 Pro Preview. Review them before downloading or sending to the CMS. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed\nAI-written: Dek"
+    ],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "Delta Branded Headline",
+    "dek": "AI dek from the data.",
+    "client": "Delta Co",
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/api/draft-narrative",
+        "fromDoc": false,
+        "headline": "Delta Branded Headline"
+      }
+    ]
+  },
+  {
+    "step": "J8. back on the start screen",
+    "stage": "start",
+    "title": "Callbox Case Study Generator",
+    "toolbar": null,
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": null,
+    "dek": null,
+    "client": null,
+    "calls": []
   }
 ]

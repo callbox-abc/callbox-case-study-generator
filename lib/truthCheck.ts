@@ -92,8 +92,9 @@ const PARAGRAPH_LISTS = ["situation.body", "progression.body", "whatChanged.outc
 const ITEM_LISTS = ["channels.takeaways", "primaryContact.pressures", "primaryContact.partnerReasons", "howItRan.steps", "whereNext.recommendations"];
 
 // Removes the flagged sentences, leaving the rest of each field as written. An emptied headline
-// also clears its highlight. The sheet passed in is not changed.
-export function removeFindings(r: RevampCaseStudy, findings: TextFinding[]): RevampCaseStudy {
+// also clears its highlight. The sheet passed in is not changed. (Also used by the unbranded
+// client details check, whose findings carry the same path and sentence.)
+export function removeFindings(r: RevampCaseStudy, findings: Pick<TextFinding, "path" | "sentence">[]): RevampCaseStudy {
   const next: RevampCaseStudy = structuredClone(r);
   for (const f of findings) {
     const parts = f.path.split(".");

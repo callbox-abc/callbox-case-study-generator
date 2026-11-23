@@ -6,7 +6,7 @@
 import RevampSheet, { C as SHEET } from "@/components/revamp/RevampSheet";
 import DataImport from "@/components/revamp/DataImport";
 import { DevKeynote } from "@/components/editor/Brand";
-import { AiBanner, CmsBanner, MapErrorBanner, NoticeBanner, TruthBanner } from "@/components/editor/EditorBanners";
+import { AiBanner, CmsBanner, IdentityBanner, MapErrorBanner, NoticeBanner, TruthBanner } from "@/components/editor/EditorBanners";
 import { EditorStyles } from "@/components/editor/EditorStyles";
 import { EditorToolbar } from "@/components/editor/EditorToolbar";
 import { SavePrompt } from "@/components/editor/SavePrompt";
@@ -19,7 +19,15 @@ export default function Page() {
   const ed = useCaseStudyEditor();
 
   if (ed.stage === "upload") {
-    return <StartScreen mapError={ed.mapError} onStartImport={ed.startFromImport} onStartBlank={ed.startBlank} onFile={ed.handleFile} />;
+    return (
+      <StartScreen
+        mapError={ed.mapError}
+        onStartImport={ed.startFromImport}
+        onStartUnbranded={ed.startUnbranded}
+        onStartBlank={ed.startBlank}
+        onFile={ed.handleFile}
+      />
+    );
   }
 
   if (ed.stage === "mapping") return <MappingScreen />;
@@ -44,6 +52,7 @@ export default function Page() {
         hasCmsDraft={ed.hasCmsDraft}
         onSendToCms={ed.sendToCms}
         onPrint={ed.printNow}
+        exportBlocked={ed.exportBlocked}
       />
 
       {ed.showImport && (
@@ -69,6 +78,13 @@ export default function Page() {
         onKeep={ed.keepTruthFinding}
         onDismiss={ed.dismissTruthCheck}
       />
+      <IdentityBanner
+        active={ed.identityActive}
+        findings={ed.identityFindings}
+        keptCount={ed.identityKeptCount}
+        onRemove={ed.removeIdentityFindings}
+        onKeep={ed.keepIdentityFinding}
+      />
       <AiBanner aiState={ed.aiState} aiMsg={ed.aiMsg} aiDrafted={ed.aiDrafted} onMarkReviewed={ed.markReviewed} />
       <CmsBanner cmsState={ed.cmsState} cmsMsg={ed.cmsMsg} cmsLink={ed.cmsLink} />
       <NoticeBanner notice={ed.notice} />
@@ -83,9 +99,16 @@ export default function Page() {
 
       <div className="app-shell" style={{ padding: "24px 16px 80px", display: "flex", justifyContent: "center" }}>
         <div style={{ width: "100%", maxWidth: A4_W }}>
+          {/* Ctrl+P bypasses the disabled Download PDF button: an unbranded sheet that still names
+              the client prints this notice instead of the sheet. */}
+          {ed.exportBlocked && (
+            <div className="print-blocked-note" style={{ padding: 40, fontSize: 16, color: "#231F20" }}>
+              This unbranded case study still names the client. Remove the client details in the editor, then print again.
+            </div>
+          )}
           <div
             ref={ed.pdfPageRef}
-            className="pdf-page"
+            className={"pdf-page" + (ed.exportBlocked ? " print-blocked" : "")}
             style={{
               width: A4_W,
               maxWidth: "100%",
