@@ -21,6 +21,7 @@ import type { RecentClient } from "@/lib/recentClients";
 import { recentKey } from "@/lib/recentKey";
 import { stripClientDetails, unbrandedCampaignPatch, unbrandedView } from "@/lib/unbranded";
 import { Logo, LogoCredit, RecentClients, TopClients, ago } from "@/components/revamp/TopClients";
+import ClientSearchBox from "@/components/revamp/ClientSearchBox";
 
 export type Campaign = {
   clientId: number;
@@ -289,8 +290,10 @@ export default function DataImport({
     loadRecent();
   }, []);
 
-  const search = async () => {
-    const term = q.trim();
+  // `prefer`: a client picked from the active clients dropdown. It is the HubSpot company to use, so
+  // it is selected whatever else the name search returns (same-name records, other offices).
+  const search = async (termIn: string = q, prefer?: Client) => {
+    const term = termIn.trim();
     if (term.length < 2) return;
     setBusy("search");
     setMsgs([]);
@@ -316,6 +319,7 @@ export default function DataImport({
         });
 
     let [hs, cb] = await Promise.all([hsFind(term), cbFind(term)]);
+    if (prefer) hs = [prefer, ...hs.filter((c) => c.companyId !== prefer.companyId)];
     // Each source lends the other a search term when its own search came up empty.
     if (!cb.length && hs.length && !errs.callboxone) {
       const t = nameTerm(hs[0].name);
@@ -325,14 +329,14 @@ export default function DataImport({
       const t = codeTerm(cb[0].campaignName);
       if (t.length >= 3 && t.toLowerCase() !== term.toLowerCase()) hs = await hsFind(t);
     }
+    const preClient = prefer ?? (hs.length === 1 ? hs[0] : null);
     setClients(hs);
     setCampaigns(cb);
-    setClient(hs.length === 1 ? hs[0] : null);
+    setClient(preClient);
     setCampaign(cb.length === 1 ? cb[0] : null);
     setSrcErr(errs);
     setSearched(true);
     setBusy("");
-    const preClient = hs.length === 1 ? hs[0] : null;
     const preCampaign = cb.length === 1 ? cb[0] : null;
     if (preClient || preCampaign) {
       const cached = await findCached(preClient, preCampaign);
@@ -615,14 +619,15 @@ export default function DataImport({
       )}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <b style={{ color: "#f5f5f7" }}>{unbranded ? "Import campaign numbers (unbranded)" : "Import client data"}</b>
-        <input
-          id="import-search"
-          aria-label="Client name or campaign code"
+        <ClientSearchBox
           value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && busy === "" && search()}
-          placeholder="Client or campaign code, e.g. Netrix or NETRIX"
-          style={{ ...input, flex: "1 1 240px" }}
+          onChange={setQ}
+          onSearch={() => busy === "" && search()}
+          onPick={(c) => {
+            setQ(c.name);
+            search(c.name, c);
+          }}
+          disabled={busy !== ""}
         />
         <input
           id="import-start"
@@ -632,7 +637,7 @@ export default function DataImport({
           placeholder="Start YYYY-MM (optional)"
           style={{ ...input, width: 170 }}
         />
-        <button style={btn} onClick={search} disabled={busy !== ""}>
+        <button style={btn} onClick={() => search()} disabled={busy !== ""}>
           {busy === "search" ? "Searching…" : "Search"}
         </button>
         <button style={btn} onClick={onClose} disabled={busy === "import"}>

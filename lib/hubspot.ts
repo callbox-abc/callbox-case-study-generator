@@ -6,8 +6,8 @@
 //  - only the request paths in ALLOWED can be called;
 //  - deal amounts are never requested, and deal names never leave the server: the browser only
 //    receives facts derived from them (client since, seat growth, services added);
-//  - contacts: only job title and original source are requested. Names, emails and phones are
-//    never requested, so they cannot leak.
+//  - contacts: only job title, original source and lead status are requested. Names, emails and
+//    phones are never requested, so they cannot leak.
 
 export class HubSpotConfigError extends Error {}
 
@@ -16,6 +16,9 @@ const API = "https://api.hubapi.com";
 const ALLOWED: [string, RegExp][] = [
   ["POST", /^\/crm\/v3\/objects\/companies\/search$/],
   ["GET", /^\/crm\/v3\/objects\/companies\/\d+$/],
+  ["POST", /^\/crm\/v3\/objects\/companies\/batch\/read$/],
+  ["POST", /^\/crm\/v3\/objects\/contacts\/search$/],
+  ["POST", /^\/crm\/v4\/associations\/contacts\/companies\/batch\/read$/],
   ["GET", /^\/crm\/v4\/objects\/companies\/\d+\/associations\/deals$/],
   ["POST", /^\/crm\/v3\/objects\/deals\/batch\/read$/],
   ["POST", /^\/crm\/v4\/associations\/deals\/contacts\/batch\/read$/],
@@ -100,6 +103,64 @@ export async function searchClients(q: string): Promise<ClientCandidate[]> {
   });
 }
 
+/* ------------------------------ active clients ------------------------------ */
+
+// The search box's dropdown: client companies with a contact whose Lead Status is "Active Client".
+// Only records that hold deals count (the client record, not the duplicates that share its name or
+// domain). Ordered by the most recently updated Active Client contact. Only contact IDs are read.
+export const ACTIVE_CLIENT_STATUS = "Active Client";
+const MAX_ACTIVE_CONTACTS = 2000;
+
+export async function activeClients(): Promise<ClientCandidate[]> {
+  const contactIds: string[] = [];
+  let after: string | undefined;
+  do {
+    const res = await hs("POST", "/crm/v3/objects/contacts/search", {}, {
+      filterGroups: [{ filters: [{ propertyName: "hs_lead_status", operator: "EQ", value: ACTIVE_CLIENT_STATUS }] }],
+      properties: ["hs_lead_status"],
+      sorts: [{ propertyName: "lastmodifieddate", direction: "DESCENDING" }],
+      limit: 100,
+      ...(after ? { after } : {}),
+    });
+    for (const c of res?.results || []) if (/^\d+$/.test(String(c?.id))) contactIds.push(String(c.id));
+    after = res?.paging?.next?.after;
+  } while (after && contactIds.length < MAX_ACTIVE_CONTACTS);
+
+  // Companies in the order their Active Client contacts were last updated.
+  const companyIds: string[] = [];
+  for (let i = 0; i < contactIds.length; i += 100) {
+    const res = await hs("POST", "/crm/v4/associations/contacts/companies/batch/read", {}, {
+      inputs: contactIds.slice(i, i + 100).map((id) => ({ id })),
+    });
+    const byContact = new Map<string, string[]>(
+      (res?.results || []).map((r: any) => [String(r?.from?.id), (r?.to || []).map((t: any) => String(t?.toObjectId)).filter((x: string) => /^\d+$/.test(x))])
+    );
+    for (const id of contactIds.slice(i, i + 100)) for (const c of byContact.get(id) || []) if (!companyIds.includes(c)) companyIds.push(c);
+  }
+
+  const byId = new Map<string, ClientCandidate>();
+  for (let i = 0; i < companyIds.length; i += 100) {
+    const res = await hs("POST", "/crm/v3/objects/companies/batch/read", {}, {
+      inputs: companyIds.slice(i, i + 100).map((id) => ({ id })),
+      properties: ["name", "domain", "city", "state", "country", "num_associated_deals", "first_deal_created_date"],
+    });
+    for (const c of res?.results || []) {
+      const p = c?.properties || {};
+      const deals = Number(p.num_associated_deals) || 0;
+      if (deals <= 0) continue;
+      byId.set(String(c.id), {
+        companyId: String(c.id),
+        name: String(p.name || "").trim() || "(no name)",
+        domain: String(p.domain || ""),
+        location: headquarters(p),
+        deals,
+        firstDeal: typeof p.first_deal_created_date === "string" ? p.first_deal_created_date.slice(0, 7) : null,
+      });
+    }
+  }
+  return companyIds.map((id) => byId.get(id)).filter((c): c is ClientCandidate => Boolean(c));
+}
+
 /* ------------------------------ firmographics ------------------------------ */
 
 const US_STATES: Record<string, string> = {
@@ -123,6 +184,13 @@ const COUNTRY_ALIASES: [RegExp, string][] = [
   [/^(ph|philippines)$/i, "Philippines"],
   [/^(hk|hong kong)$/i, "Hong Kong"],
   [/^(uae|ae|united arab emirates)$/i, "United Arab Emirates"],
+  [/^(kr|kor|south korea|republic of korea)$/i, "South Korea"],
+  [/^(jp|jpn|japan)$/i, "Japan"],
+  [/^(in|ind|india)$/i, "India"],
+  [/^(my|mys|malaysia)$/i, "Malaysia"],
+  [/^(de|deu|germany)$/i, "Germany"],
+  [/^(fr|fra|france)$/i, "France"],
+  [/^(mx|mex|mexico)$/i, "Mexico"],
 ];
 
 export function normalizeCountry(v: unknown): string {
@@ -130,11 +198,22 @@ export function normalizeCountry(v: unknown): string {
   return COUNTRY_ALIASES.find(([re]) => re.test(t))?.[1] ?? t;
 }
 
-function headquarters(p: Record<string, any>): string {
+// "City, State, Country". HubSpot records often repeat a part across fields (state "NSW, Australia"
+// plus country "Australia"; "Singapore" as city, state and country), so a part already written is
+// left out: "Sydney NSW, Australia", "Singapore".
+export function headquarters(p: Record<string, any>): string {
   const country = normalizeCountry(p.country);
   const rawState = String(p.state || "").trim();
   const state = country === "United States" ? US_STATES[rawState.toUpperCase()] ?? rawState : rawState;
-  return [String(p.city || "").trim(), state, country].filter(Boolean).join(", ");
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const part of [String(p.city || ""), state, country].flatMap((x) => x.split(",")).map((x) => x.trim()).filter(Boolean)) {
+    const key = part.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    parts.push(part);
+  }
+  return parts.join(", ");
 }
 
 // HubSpot industry values are enums (INFORMATION_TECHNOLOGY_AND_SERVICES).
