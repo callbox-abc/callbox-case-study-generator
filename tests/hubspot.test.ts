@@ -2,7 +2,10 @@
 
 import { describe, expect, it } from "vitest";
 import { seniorityOf } from "@/lib/callboxone";
-import { groundSolutionLines, normalizeCountry, normalizeJobTitle, relationshipFrom, seatsInDealName } from "@/lib/hubspot";
+import { clientSinceFrom, crmInUse, groundSolutionLines, normalizeCountry, normalizeJobTitle, relationshipFrom, seatsInDealName } from "@/lib/hubspot";
+import { mergeNarrative, narrativeInput } from "@/lib/narrative";
+import { stripClientDetails } from "@/lib/unbranded";
+import { sheet } from "./fixtures";
 
 describe("seatsInDealName", () => {
   it("reads an explicit seat count", () => {
@@ -107,5 +110,69 @@ describe("seniorityOf (appointment job titles)", () => {
 
   it("does not read 'Office of the CEO' as a CEO", () => {
     expect(seniorityOf("Office of the CEO Assistant")).toBe("lvlOther");
+  });
+});
+
+// "Client since" from two HubSpot dates: the first closed-won deal, and when the company's lifecycle
+// stage became Customer. (Made-up dates.)
+describe("clientSinceFrom", () => {
+  const mar = { clientSince: "March 2024" };
+
+  it("uses the deal month when the lifecycle date is in the same month", () => {
+    expect(clientSinceFrom(mar, "2024-03-05T10:00:00.000Z")).toEqual({ value: "March 2024", note: "" });
+  });
+
+  it("leaves it empty and gives both dates when the months differ (no guessing)", () => {
+    const r = clientSinceFrom(mar, "2024-02-27T17:54:50.467Z");
+    expect(r.value).toBe("");
+    expect(r.note).toBe(
+      "Client since was left empty: HubSpot gives two dates. The first closed-won deal closed in March 2024, but the company became a customer on 27 February 2024. Check with the CSM and fill it in."
+    );
+  });
+
+  it("uses the deal month when there is no lifecycle date", () => {
+    expect(clientSinceFrom(mar, null)).toEqual({ value: "March 2024", note: "" });
+    expect(clientSinceFrom(mar, "not a date")).toEqual({ value: "March 2024", note: "" });
+  });
+
+  it("never uses a lifecycle date alone (no closed-won deal), only reports it", () => {
+    expect(clientSinceFrom(null, "2024-02-27T17:54:50.467Z")).toEqual({
+      value: "",
+      note: "HubSpot says the company became a customer on 27 February 2024, but there is no closed-won deal to confirm it, so Client since was left empty.",
+    });
+    expect(clientSinceFrom(null, null)).toEqual({ value: "", note: "" });
+  });
+});
+
+describe("crmInUse", () => {
+  it("keeps a named CRM and drops placeholders", () => {
+    expect(crmInUse("Pipedrive")).toBe("Pipedrive");
+    expect(crmInUse("  HubSpot  ")).toBe("HubSpot");
+    for (const v of ["None", "N/A", "na", "-", "unknown", "", null, undefined]) expect(crmInUse(v)).toBe("");
+  });
+});
+
+// The CRM is AI context for "Where it goes next" only: never a shown fact, and never on an
+// unbranded case study.
+describe("CRM in use on the sheet", () => {
+  const withCrm = () => sheet({ internal: { leadSource: "", extraFacts: [{ label: "CRM in use", value: "Pipedrive" }] } });
+
+  it("reaches the AI as a fact but is not one of the sheet's shown facts", () => {
+    const r = withCrm();
+    expect(r.facts.some((f) => f.label === "CRM in use")).toBe(false);
+    expect(narrativeInput(r).facts).toContainEqual({ label: "CRM in use", value: "Pipedrive" });
+  });
+
+  it("keeps its capital in sentence-case titles", () => {
+    const { next } = mergeNarrative(withCrm(), {
+      whereNext: { recommendations: [{ title: "Log Every Stage In Pipedrive", body: "Track opportunities in Pipedrive." }] },
+    });
+    expect(next.whereNext.recommendations[0].title).toBe("Log every stage in Pipedrive");
+  });
+
+  it("is stripped from an unbranded case study", () => {
+    const r = stripClientDetails({ ...withCrm(), unbranded: true });
+    expect(r.internal.extraFacts).toEqual([]);
+    expect(JSON.stringify(narrativeInput({ ...withCrm(), unbranded: true }))).not.toContain("Pipedrive");
   });
 });

@@ -22,7 +22,14 @@ const ALLOWED: [string, RegExp][] = [
   ["POST", /^\/crm\/v3\/objects\/contacts\/batch\/read$/],
 ];
 
-const COMPANY_PROPS = ["name", "domain", "city", "state", "country", "industry", "numberofemployees", "description"];
+// crm_being_used: Callbox's own field for the client's CRM (e.g. "Salesforce", "HubSpot"). hs_v2_date_entered_customer:
+// when the record's lifecycle stage became Customer, a cross-check for "Client since".
+// Never requested (James, 2026-11-23): competitors, strategic partners, revenue, owners, phone,
+// address, funnel_report_link (an apps-01 URL with a login key in it).
+const COMPANY_PROPS = [
+  "name", "domain", "city", "state", "country", "industry", "numberofemployees", "description",
+  "crm_being_used", "hs_v2_date_entered_customer",
+];
 // No "amount" or any other money field: the generator has no use for them.
 const DEAL_PROPS = ["dealname", "closedate", "hs_is_closed_won"];
 // No name, email or phone: the case study describes the buyer by role only.
@@ -213,7 +220,38 @@ export function relationshipFrom(deals: Deal[]): Relationship | null {
   };
 }
 
-/* --------------------------------- profile --------------------------------- */
+// "Client since" from two HubSpot dates: the first closed-won deal and the day the company's
+// lifecycle stage became Customer (e.g. a deal that closed in March, but a customer since late February). When both
+// exist and fall in different months, HubSpot doesn't settle the month, so the fact is left empty
+// and the writer gets both dates (no guessing). Otherwise the deal month is used, as before; a
+// lifecycle date alone (no closed-won deal) is only reported, never used.
+export function clientSinceFrom(rel: Pick<Relationship, "clientSince"> | null, enteredCustomer: unknown): { value: string; note: string } {
+  const d = new Date(String(enteredCustomer || ""));
+  const lifecycle = enteredCustomer && Number.isFinite(d.getTime()) ? d : null;
+  const day = lifecycle ? `${lifecycle.getUTCDate()} ${monthLabel(lifecycle)}` : "";
+  if (!rel) {
+    return {
+      value: "",
+      note: lifecycle ? `HubSpot says the company became a customer on ${day}, but there is no closed-won deal to confirm it, so Client since was left empty.` : "",
+    };
+  }
+  if (lifecycle && monthLabel(lifecycle) !== rel.clientSince) {
+    return {
+      value: "",
+      note:
+        `Client since was left empty: HubSpot gives two dates. The first closed-won deal closed in ${rel.clientSince}, ` +
+        `but the company became a customer on ${day}. Check with the CSM and fill it in.`,
+    };
+  }
+  return { value: rel.clientSince, note: "" };
+}
+
+// The client's CRM, from Callbox's "CRM BEING USED" field. Placeholders mean "not known".
+const NO_CRM = /^(none|no|n\/?a|na|-+|unknown|not sure|tbd|no crm|nothing|null|other)$/i;
+export function crmInUse(v: unknown): string {
+  const t = String(v ?? "").replace(/\s+/g, " ").trim();
+  return t && t.length <= 60 && !NO_CRM.test(t) ? t : "";
+}
 
 /* ------------------------------ solution lines ------------------------------ */
 
@@ -346,6 +384,9 @@ export type ClientProfile = {
   company: {
     companyId: string; name: string; domain: string; headquarters: string; country: string; industry: string; size: string;
     solutionLines: string;
+    // The client's CRM ("Salesforce"), for the AI's "Where it goes next" only; never a shown fact.
+    // Optional: profiles saved before it existed don't have it.
+    crm?: string;
   };
   primaryContact: PrimaryContact | null;
   relationship: Relationship | null;
@@ -401,14 +442,16 @@ export async function clientProfile(companyId: string): Promise<ClientProfile> {
     industry: industryLabel(p.industry),
     size: sizeBand(p.numberofemployees),
     solutionLines,
+    crm: crmInUse(p.crm_being_used),
   };
+  const since = clientSinceFrom(rel, p.hs_v2_date_entered_customer);
 
   const facts: { label: string; value: string }[] = [];
   if (info.industry) facts.push({ label: "Industry", value: info.industry });
   if (info.headquarters) facts.push({ label: "Headquarters", value: info.headquarters });
   if (info.size) facts.push({ label: "Company size", value: info.size });
   if (rel) {
-    facts.push({ label: "Client since", value: rel.clientSince });
+    if (since.value) facts.push({ label: "Client since", value: since.value });
     const growth: string[] = [];
     if (rel.seats && rel.seats.peak > rel.seats.first) {
       growth.push(
@@ -430,6 +473,8 @@ export async function clientProfile(companyId: string): Promise<ClientProfile> {
   ];
   if (solutionLines) notes.push("The solution line was summarized from HubSpot's company description; check it.");
   if (contactNote) notes.push(contactNote);
+  if (since.note) notes.push(since.note);
+  if (info.crm) notes.push(`CRM in use: ${info.crm}. The AI may name it only in Where it goes next (not shown as a fact).`);
   if (!rel) notes.push("This record has no closed-won deals, so there is no client-since date or program growth.");
   else if (!rel.seats) notes.push("No seat counts were found in the deal names, so seat growth is not shown.");
 
