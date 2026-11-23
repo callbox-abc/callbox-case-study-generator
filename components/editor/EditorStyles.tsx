@@ -24,8 +24,11 @@ export function EditorStyles() {
           .app-root { min-height: 0 !important; }
           .pdf-page { box-shadow: none !important; margin: 0 !important; border-radius: 0 !important; overflow: visible !important; height: auto !important; }
           .avoid-break { break-inside: avoid !important; page-break-inside: avoid !important; }
+          /* An unbranded sheet that still names the client never prints (see app/page.tsx). */
+          .print-blocked { display: none !important; }
+          .print-blocked-note { display: block !important; }
         }
-        .print-only { display: none; }
+        .print-only, .print-blocked-note { display: none; }
         .ef { border-radius: 4px; transition: background 0.1s; }
         .ef:hover { background: rgba(255,202,9,0.14); }
         .ef:focus-within { background: rgba(255,202,9,0.22); }

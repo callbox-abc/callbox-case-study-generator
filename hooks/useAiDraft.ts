@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type
 import { normalizeRevamp, type RevampCaseStudy } from "@/lib/revamp";
 import { applyDrafted, pendingFields } from "@/lib/narrative";
 import { modelLabel } from "@/lib/aiModels";
+import { exportable } from "@/lib/unbranded";
 
 export type AiState = "idle" | "drafting" | "done" | "error";
 
@@ -56,7 +57,8 @@ export function useAiDraft({
       const res = await fetch("/api/draft-narrative", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sheet: csRef.current, sourceText: sourceTextRef.current }),
+        // An unbranded sheet leaves the browser without client details (the route strips it too).
+        body: JSON.stringify({ sheet: exportable(csRef.current), sourceText: sourceTextRef.current }),
       });
       const text = await res.text();
       let json: any;

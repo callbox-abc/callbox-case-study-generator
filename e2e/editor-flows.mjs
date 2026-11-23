@@ -40,7 +40,62 @@ gamma.sheet.data = {
   subDek: "The program booked 111 appointments.",
   situation: { body: ["Gamma runs a 40-person IT team."] },
 };
-const RECENT = [recentEntry(111, "Acme Corp", "Acme Saved Headline"), recentEntry(222, "Beta Inc", "Beta Saved Headline"), gamma];
+// A client with a full HubSpot profile and CallboxOne numbers saved, plus a reviewed branded sheet
+// and its CMS draft. Its unbranded case study must show none of the client's details, and the two
+// case studies never share a sheet or a CMS draft.
+const DELTA_DETAILS = ["Delta", "deltaco", "Austin", "Texas", "DELTA25071", "Fleet telematics", "VP of Sales", "201 to 500", "June 2025", "2 to 4 seats"];
+const delta = {
+  ...recentEntry(555, "Delta Co", "Delta Branded Headline"),
+  domain: "deltaco.com",
+  campaign: { clientId: 555, clientAccountId: 555, campaignName: "DELTA25071", clientName: "Delta Co", teamLeader: null, start: "2025-07", timezone: null },
+  company: { companyId: "9001", name: "Delta Co", domain: "deltaco.com", location: "Austin, United States", deals: 4, firstDeal: "2025-06" },
+  cmsDraft: { id: 777, editLink: "https://cms.example/wp-admin/post.php?post=777&action=edit", at: "2026-11-18T00:00:00Z" },
+  stored: {
+    hubspot: {
+      company: { name: "Delta Co", domain: "deltaco.com", country: "United States", solutionLines: "Fleet telematics" },
+      facts: [
+        { label: "Industry", value: "Fleet telematics" },
+        { label: "Headquarters", value: "Austin, Texas, United States" },
+        { label: "Company size", value: "201 to 500 employees" },
+        { label: "Client since", value: "June 2025" },
+        { label: "Program growth", value: "Grew from 2 to 4 seats" },
+      ],
+      primaryContact: { role: "VP of Sales", leadSource: "Inbound", deals: 4 },
+      relationship: { firstWon: "2025-06" },
+      notes: [],
+    },
+    callboxone: {
+      patch: {
+        heroStats: [{ value: "64", label: "Sales-qualified appointments" }],
+        facts: [
+          { label: "Period measured", value: "July 2025 to present (ongoing), 17 months so far" },
+          { label: "Market", value: "Canada" },
+          { label: "Channels worked", value: "Voice" },
+        ],
+        channels: { rows: [{ name: "Voice", activity: "5,000 calls placed", appointments: 64 }] },
+        progression: {
+          quarters: [
+            { label: "Q3 2025", count: 30, note: "", isPeak: false, isPartial: false },
+            { label: "Q4 2025", count: 34, note: "", isPeak: true, isPartial: false },
+          ],
+          chartTitle: "Sales-qualified appointments, by quarter",
+          chartMeta: "64 total",
+        },
+        funnel: { stages: [{ name: "Appointments set", description: "Booked.", value: 64 }] },
+        howItRan: { roles: [{ role: "Director / Head", count: 20 }], rolesFootnote: "" },
+        methodologyNote: "Figures are drawn from the CallboxOne campaign record for DELTA25071 since July 2025; the campaign was still running when they were pulled.",
+      },
+      period: { from: "2025-07-01", to: "2026-11-23", months: 17 },
+      notes: [],
+      startSource: "code",
+    },
+  },
+};
+delta.sheet.reviewed = true;
+// Delta's details found in what the page sent (empty = none).
+const deltaLeaks = (o) => DELTA_DETAILS.filter((w) => JSON.stringify(o ?? null).includes(w));
+
+const RECENT = [recentEntry(111, "Acme Corp", "Acme Saved Headline"), recentEntry(222, "Beta Inc", "Beta Saved Headline"), gamma, delta];
 
 // This week's most active clients: one card whose HubSpot match was ambiguous (two "Company 1"
 // records, its Brazil and Korea offices), so the job linked none (lib/topClients.ts chooseCompany).
@@ -76,17 +131,19 @@ function mockApi(url, method, body, calls) {
   const log = (detail) => calls.push({ method, path: p + (step ? `?step=${step}` : ""), ...detail });
   if (p === "/api/top-clients") return { snapshot: TOP_SNAPSHOT, job: null };
   if (p === "/api/recent-clients" && method === "GET") return u.searchParams.get("key") ? { entry: null } : { recent: RECENT };
+  // Unbranded requests also log whether they carry any of Delta's details.
+  const unb = (sheet) => (sheet?.unbranded ? { unbranded: true, leaks: deltaLeaks(sheet) } : {});
   if (p === "/api/recent-clients" && step === "sheet") {
-    log({ key: b.key, reviewed: b.reviewed, aiDrafted: b.aiDrafted, headline: b.sheet?.headline, dek: b.sheet?.dek });
+    log({ key: b.key, reviewed: b.reviewed, aiDrafted: b.aiDrafted, headline: b.sheet?.headline, dek: b.sheet?.dek, ...unb(b.sheet) });
     return { ok: true };
   }
   if (p === "/api/recent-clients" && step === "draft") {
-    log({ key: b.key, id: b.id });
+    log({ key: b.key, id: b.id, ...(b.unbranded ? { unbranded: true } : {}) });
     return { ok: true };
   }
   if (p === "/api/draft-narrative") {
     const fromDoc = Boolean(b.sourceText);
-    log({ fromDoc, headline: b.sheet?.headline });
+    log({ fromDoc, headline: b.sheet?.headline, ...unb(b.sheet) });
     // A mapped document drafts nothing (so its mapping example can be saved); a client gets a dek.
     // Gamma's first draft (its text still has the stale 1,622) answers late, like the real AI, so
     // the truth check can be seen in progress.
@@ -107,7 +164,7 @@ function mockApi(url, method, body, calls) {
     return { data: { clientName: "Mapped Co", headline: "Mapped Headline From The Document", heroStats: [{ value: "42", label: "Appointments" }] } };
   }
   if (p === "/api/cms/draft") {
-    log({ pageId: b.pageId ?? null, headline: b.revamp?.headline });
+    log({ pageId: b.pageId ?? null, headline: b.revamp?.headline, ...unb(b.revamp) });
     return {
       id: 4321,
       status: "draft",
@@ -495,6 +552,73 @@ export async function runEditorFlows({ cdp, appUrl, user, pass, cpuSlowdown = 1,
   if (await dialogOpen()) await click(/Exit without saving/);
   await waitFor(onStart, "the start screen");
   await record("I2. back on the start screen");
+
+  /* ---------------- J. unbranded: the campaign's numbers, no client details ---------------- */
+  // Everything the sheet shows or holds (its text and every field's value), not the import panel.
+  const sheetText = page(`(() => {
+    const p = document.querySelector('.pdf-page');
+    return p.innerText + ' ' + [...p.querySelectorAll('textarea, input')].map(e => e.value).join(' ');
+  })()`);
+  const identityBanner = (st) => st.banners.find((b) => /^Client details check:/.test(b)) || "";
+  await click(/Start an unbranded case study/);
+  await waitFor(shows(/Import campaign numbers \(unbranded\)/), "the unbranded import panel");
+  s = await record("J1. unbranded card opens the import panel");
+  check("the unbranded card opens the editor at the import panel", s.stage === "editor" && s.importPanel);
+  check("an unbranded sheet has no client field", s.client === null);
+  await openClient("Delta Co");
+  let onSheet = await sheetText();
+  s = await record("J2. Delta loaded unbranded", { leaksOnSheet: DELTA_DETAILS.filter((w) => onSheet.includes(w)) });
+  check("no client detail on the unbranded sheet (name, HQ, industry, size, client since, growth, contact, campaign code)", s.leaksOnSheet.length === 0, s.leaksOnSheet.join(", "));
+  check("the campaign's numbers and market are on it", /Canada/.test(onSheet) && /64/.test(onSheet) && /Voice/.test(onSheet));
+  check("no primary contact section", !/The primary contact/i.test(onSheet));
+  check("the AI got no client detail", callsOf(s, /draft-narrative/)[0]?.unbranded === true && js(callsOf(s, /draft-narrative/)[0]?.leaks) === "[]", js(callsOf(s, /draft-narrative/)));
+  check("the branded sheet saved for the same client is not loaded", s.headline !== "Delta Branded Headline", s.headline);
+  check("the import says HubSpot only found the campaign", await shows(/Unbranded case study: HubSpot was used only to find the campaign's start/)());
+  await setField("Dek: who the client is and what changed", "Delta Co booked 64 appointments from Austin. Voice set all 64.");
+  await waitFor(shows(/names the client/), "the client details check");
+  s = await record("J3. typed the client's name and HQ");
+  check(
+    "the client details check flags the sentence, with what names the client",
+    /^Client details check: 1 sentence on this unbranded case study names the client/.test(identityBanner(s)) &&
+      /“Delta Co booked 64 appointments from Austin\.” \(names the client: Delta, Austin\)/.test(identityBanner(s)),
+    identityBanner(s)
+  );
+  check("PDF and CMS are blocked while the client is named", s.toolbar.includes("Download PDF (disabled)") && s.toolbar.includes("Send to CMS as draft (disabled)"), js(s.toolbar));
+  const findRow = `[...document.querySelectorAll('[role=status] li')].find(li => li.textContent.includes("Delta Co booked"))`;
+  await cdp.evaluate(`[...${findRow}.querySelectorAll('button')].find(b => b.textContent.trim() === "Remove").click()`);
+  await waitFor(shows(/nothing on the sheet names the client/), "the check to pass");
+  s = await record("J4. removed the sentence");
+  check("Remove takes only that sentence out", s.dek === "Voice set all 64.", s.dek);
+  check("PDF and CMS are open again", s.toolbar.includes("Download PDF") && s.toolbar.includes("Send to CMS as draft"), js(s.toolbar));
+  await click(/^Send to CMS as draft$/);
+  await waitFor(sent(/cms\/draft/), "the CMS request");
+  await waitFor(sent(/step=draft/), "the draft link save");
+  await waitFor(sent(/step=sheet/), "the sheet save");
+  s = await record("J5. unbranded sent to the CMS");
+  const cmsCall = callsOf(s, /cms\/draft/)[0];
+  check("the CMS draft is new (not the branded draft) and has no client detail", cmsCall?.pageId === null && cmsCall?.unbranded === true && js(cmsCall?.leaks) === "[]", js(cmsCall));
+  check("its draft link is saved as the client's unbranded draft", callsOf(s, /step=draft/)[0]?.unbranded === true);
+  check(
+    "the sheet is saved as the client's unbranded sheet, with no client detail",
+    callsOf(s, /step=sheet/)[0]?.key === "recent:555" && callsOf(s, /step=sheet/)[0]?.unbranded === true && js(callsOf(s, /step=sheet/)[0]?.leaks) === "[]",
+    js(callsOf(s, /step=sheet/))
+  );
+  await startOver();
+  if (await dialogOpen()) await click(/Exit without saving/);
+  await waitFor(onStart, "the start screen");
+  await record("J6. back on the start screen");
+  // The same client, branded: its own reviewed sheet, untouched by the unbranded one.
+  await fromImport();
+  await click(/Delta Co/);
+  await waitFor(page(`document.querySelector('[placeholder="Headline (H1)"]')?.value === "Delta Branded Headline"`), "Delta's branded sheet");
+  await maybe(sent(/\/api\/draft-narrative/), 3000);
+  await maybe(shows(/AI drafted/), 3000);
+  s = await record("J7. Delta branded loads its own sheet");
+  check("the branded case study still loads its own saved sheet", s.headline === "Delta Branded Headline" && s.client === "Delta Co", js({ headline: s.headline, client: s.client }));
+  await startOver();
+  if (await dialogOpen()) await click(/Exit without saving/);
+  await waitFor(onStart, "the start screen");
+  await record("J8. back on the start screen");
 
   check("no requests to unmocked APIs", !steps.some((st) => st.calls.some((c) => c.unmocked)));
   check("no errors in the page", errors.length === 0, errors.join(" | "));

@@ -3,6 +3,7 @@
 
 import { useRef, useState, type MutableRefObject } from "react";
 import type { RevampCaseStudy } from "@/lib/revamp";
+import { exportable } from "@/lib/unbranded";
 import type { ImportSource } from "@/components/revamp/DataImport";
 
 export type CmsState = "idle" | "sending" | "done" | "error";
@@ -30,7 +31,7 @@ export function useCmsDraft({
       const draftRes = await fetch("/api/cms/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ revamp: cs, pageId: cmsPageIdRef.current }),
+        body: JSON.stringify({ revamp: exportable(cs), pageId: cmsPageIdRef.current }),
       });
       const draftJson = await draftRes.json();
       if (!draftRes.ok) throw new Error(draftJson.error || "Could not create the draft.");
@@ -38,11 +39,12 @@ export function useCmsDraft({
       cmsPageIdRef.current = draftJson.id;
       void saveSheetNow(); // what went to the CMS is what the shared copy should hold
       // Show the draft next to the client in "Recently imported clients", so nobody makes a second one.
+      // An unbranded draft is kept apart from the client's branded one.
       if (importSourceRef.current) {
         fetch("/api/recent-clients?step=draft", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ key: importSourceRef.current.key, id: draftJson.id, editLink: draftJson.editLink }),
+          body: JSON.stringify({ key: importSourceRef.current.key, id: draftJson.id, editLink: draftJson.editLink, ...(cs.unbranded ? { unbranded: true } : {}) }),
         }).catch(() => {});
       }
       setCmsLink(draftJson.editLink);

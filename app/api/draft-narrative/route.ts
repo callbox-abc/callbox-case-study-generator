@@ -71,6 +71,11 @@ const SYSTEM_INSTRUCTION = [
   "- whereNext.recommendations: 2-3 Callbox recommendations that follow from the data (title + 1-2 sentences), e.g. logging unlogged funnel stages or tracking appointments for untracked channels.",
   "- quarterNotes: one short note per quarter that describes its position (launch quarter, low point, peak, up or down from the previous quarter, still running) and must match the numbers. Do not restate the count; it is already shown.",
   "",
+  "UNBRANDED CASE STUDIES (input.unbranded is true; these rules override the ones above):",
+  "- The client must stay unidentifiable. Call it \"a B2B company\" (in the headline: \"B2B Company\"). Never mention or guess its industry, products, location, size, how long it has worked with Callbox, its program or seats, or anyone who works there.",
+  "- Write only about the campaign: the market, the channels, the lists and records worked, the buyers who said yes (seniority mix), the numbers and the progression.",
+  "- Leave primaryContact empty (empty strings and arrays).",
+  "",
   "Return ONLY valid JSON matching the shape. Use empty strings or empty arrays for anything you cannot ground in the input.",
 ].join("\n");
 

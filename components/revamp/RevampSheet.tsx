@@ -11,6 +11,7 @@ import {
   loggedFunnelStages,
   sectionNumbers,
 } from "@/lib/revamp";
+import { isClientFact } from "@/lib/unbranded";
 
 // Callbox brand tokens (live callboxinc.com): charcoal ink, yellow accent, warm paper.
 export const C = {
@@ -358,6 +359,12 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
         <img src="/callbox-logo.svg" alt="Callbox" style={{ height: 30 }} />
       </div>
 
+      {/* Unbranded: no client name, solution lines or HQ country, on screen or in the PDF. */}
+      {r.unbranded ? (
+        <div className="no-print" style={{ marginBottom: 14 }}>
+          <Mono color={C.onDarkMute}>Unbranded case study · no client name, HQ or other client details</Mono>
+        </div>
+      ) : (
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "baseline", marginBottom: 14 }}>
         {(["clientName", "solutionLines", "country"] as const).map((k, i) => (
           <div key={k} style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
@@ -374,6 +381,7 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
           </div>
         ))}
       </div>
+      )}
 
       {/* Print shows the highlight; on screen the headline is edited as plain text. */}
       <h1 className="print-only" style={{ ...h2(true), fontSize: 36, lineHeight: 1.04, margin: "0 0 16px", maxWidth: 620 }}>
@@ -415,8 +423,14 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
   const factBar = (
     <section style={{ background: C.paper, borderBottom: "1px solid " + C.line, padding: `22px ${PAD_X}px` }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "16px 20px" }}>
-        {r.facts.map((f, i) => (
-          <div key={i} className="avoid-break">
+        {r.facts.map((f, i) => {
+          // A client fact typed onto an unbranded sheet: edit-only, never in the PDF or the CMS.
+          const blocked = r.unbranded && isClientFact(f.label);
+          return (
+          <div key={i} className={blocked ? "avoid-break no-print" : "avoid-break"} style={blocked ? { outline: "1px dashed #B91C1C", outlineOffset: 3, borderRadius: 4 } : undefined}>
+            {blocked && (
+              <div style={{ fontFamily: MONO, fontSize: 9, color: "#B91C1C", marginBottom: 2 }}>Client detail: left out of an unbranded case study</div>
+            )}
             <div style={{ display: "flex", gap: 2 }}>
               <div style={{ flex: 1 }}>
                 <T value={f.label} onChange={(v) => up((d) => { d.facts[i].label = v; })} placeholder="Label"
@@ -427,7 +441,8 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
             <T value={f.value} onChange={(v) => up((d) => { d.facts[i].value = v; })} placeholder="Value" multiline
               style={{ fontSize: 12.5, lineHeight: 1.45, color: C.ink, marginTop: 3 }} />
           </div>
-        ))}
+          );
+        })}
       </div>
       {r.facts.length < 8 && <Add label="+ Fact" onClick={() => up((d) => { d.facts.push({ label: "", value: "" }); })} />}
     </section>
@@ -668,6 +683,8 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
       <Add label="+ Outcome" onClick={() => up((d) => { d.whatChanged.outcomes.push(""); })} />
         </>
       )}
+      {/* A client quote names the client's people: never on an unbranded case study. */}
+      {!r.unbranded && (
       <figure className={wc.quote.text ? "avoid-break" : "no-print"} style={{ margin: "18px 0 0", padding: "18px 20px", background: C.paper, borderRadius: 12, borderLeft: "3px solid " + C.yellow }}>
         <T value={wc.quote.text} onChange={(v) => up((d) => { d.whatChanged.quote.text = v; })} placeholder="Client quote (optional, hidden when empty)" multiline style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.5, color: C.ink }} />
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
@@ -675,6 +692,7 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
           <div style={{ flex: 1 }}><T value={wc.quote.title} onChange={(v) => up((d) => { d.whatChanged.quote.title = v; })} placeholder="Title" style={{ fontSize: 12, color: C.mute }} /></div>
         </div>
       </figure>
+      )}
     </Section>
   );
 
@@ -715,7 +733,8 @@ export default function RevampSheet({ r, up, pending = EMPTY_SET }: { r: RevampC
       {factBar}
       {situation}
       {channels}
-      {primary}
+      {/* The client's own contact: an unbranded case study has no such section, not even empty. */}
+      {!r.unbranded && primary}
       {howItRan}
       {progression}
       {funnel}

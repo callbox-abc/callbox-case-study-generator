@@ -1,14 +1,14 @@
 "use client";
 
-// The screens before the editor: the start screen (four ways in) and "Reading your document…".
+// The screens before the editor: the start screen (five ways in) and "Reading your document…".
 
 import { useRef, useState } from "react";
-import { ArrowRight, Database, Download, FilePlus, Upload } from "lucide-react";
+import { ArrowRight, Database, Download, EyeOff, FilePlus, Upload } from "lucide-react";
 import { TEMPLATE_FILE } from "@/lib/templateSchema";
 import { DevKeynote, Loader, Wordmark } from "@/components/editor/Brand";
 import { BG, BORDER_STRONG, MUTED, SHEET_BG, TEXT, YELLOW, YELLOW_INK } from "@/components/editor/theme";
 
-// Start screen option tiles, largest first: live data, document, blank sheet, template.
+// Start screen option tiles, largest first: live data, unbranded, document, blank sheet, template.
 const tile: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
@@ -44,11 +44,13 @@ const tileIcon: React.CSSProperties = {
 export function StartScreen({
   mapError,
   onStartImport,
+  onStartUnbranded,
   onStartBlank,
   onFile,
 }: {
   mapError: string;
   onStartImport: () => void;
+  onStartUnbranded: () => void;
   onStartBlank: () => void;
   onFile: (file: File | undefined) => void;
 }) {
@@ -95,7 +97,25 @@ export function StartScreen({
           <ArrowRight size={22} style={{ flex: "0 0 auto" }} />
         </button>
 
-        {/* 2. Drop a document */}
+        {/* 2. Unbranded: the campaign's numbers only, no client details (lib/unbranded.ts) */}
+        <button
+          onClick={onStartUnbranded}
+          style={{ ...tile, marginTop: 14, padding: "24px 24px", border: "1px solid rgba(245,185,20,0.55)", background: SHEET_BG, color: TEXT }}
+        >
+          <span style={{ ...tileIcon, background: "rgba(245,185,20,0.12)", color: YELLOW }}>
+            <EyeOff size={23} />
+          </span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 17, fontWeight: 700 }}>Start an unbranded case study</span>
+            <span style={{ display: "block", fontSize: 13.5, lineHeight: 1.5, marginTop: 4, color: MUTED }}>
+              Campaign numbers only. Pick a client to pull its CallboxOne numbers: its name, industry, HQ, size, client since,
+              program growth and primary contact never reach the sheet, the AI, the PDF or the CMS.
+            </span>
+          </span>
+          <ArrowRight size={22} style={{ flex: "0 0 auto", color: YELLOW }} />
+        </button>
+
+        {/* 3. Drop a document */}
         <div
           onDragOver={(e) => {
             e.preventDefault();
@@ -151,7 +171,7 @@ export function StartScreen({
           </div>
         )}
 
-        {/* 3. Blank sheet   4. Template */}
+        {/* 4. Blank sheet   5. Template */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14, marginTop: 14 }}>
           <button onClick={onStartBlank} style={tileGhost}>
             <span style={{ ...tileIcon, width: 44, height: 44 }}>

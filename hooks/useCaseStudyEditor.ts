@@ -3,6 +3,7 @@
 // themselves live in their own hooks:
 //   useAiDraft         AI drafting of empty fields, review banner
 //   useTruthCheck      "Verifying truth data": the text's numbers against CallboxOne's
+//   useIdentityCheck   unbranded case studies: no word on the sheet names the client
 //   useSheetSave       saving a pulled client's sheet, unsaved changes, the save prompt
 //   useCmsDraft        Send to CMS as draft
 //   useMappingExample  few-shot example from a mapped document
@@ -26,6 +27,8 @@ import { useMappingExample } from "@/hooks/useMappingExample";
 import { usePrintTitle } from "@/hooks/usePrintTitle";
 import { saveFingerprint, useSheetSave } from "@/hooks/useSheetSave";
 import { useTruthCheck } from "@/hooks/useTruthCheck";
+import { useIdentityCheck } from "@/hooks/useIdentityCheck";
+import { stripClientDetails } from "@/lib/unbranded";
 
 export type Stage = "upload" | "mapping" | "edit";
 
@@ -57,6 +60,11 @@ export function useCaseStudyEditor() {
 
   const ai = useAiDraft({ csRef, setCs, sourceTextRef, reviewedRef });
   const truth = useTruthCheck({ cs, csRef, setCs, requestAutoDraft: ai.requestAutoDraft });
+  const identity = useIdentityCheck({ cs, csRef, setCs, importSourceRef, requestAutoDraft: ai.requestAutoDraft });
+  // An unbranded case study that still names the client is not downloaded or sent anywhere.
+  const exportBlocked = identity.findings.length
+    ? `Remove the client details first (${identity.findings.length} in the client details check above the sheet).`
+    : "";
   const mapping = useMappingExample();
   const saveMappingExample = () => mapping.saveMappingExample(cs, ai.aiUsedRef.current);
   const save = useSheetSave({ csRef, importSourceRef, reviewedRef, lastSavedRef, aiDraftedRef: ai.aiDraftedRef });
@@ -89,6 +97,7 @@ export function useCaseStudyEditor() {
     ai.resetAi();
     cms.resetCms();
     truth.reset();
+    identity.reset();
     setCs(EMPTY_REVAMP);
     mapping.setSourceText("");
     mapping.setOriginalMapped(null);
@@ -131,13 +140,14 @@ export function useCaseStudyEditor() {
       if (choice === "save" && !(await save.saveSheetNow())) return false;
     }
     ai.resetAi();
-    setCs(EMPTY_REVAMP);
+    setCs({ ...EMPTY_REVAMP, unbranded: csRef.current.unbranded }); // still the same kind of case study
     setNotice("");
     importSourceRef.current = null;
     reviewedRef.current = false;
     lastSavedRef.current = "";
     cms.resetCms(); // a new client gets its own CMS draft
     truth.reset(); // and is checked against its own data
+    identity.reset();
     save.setSaveState("idle");
     return "switched";
   };
@@ -148,7 +158,12 @@ export function useCaseStudyEditor() {
   const loadSaved = (r: RecentClient): boolean => {
     const saved = r.sheet;
     if (!saved) return false;
-    const sheet = normalizeRevamp(saved.data);
+    // The import panel hands over the saved sheet of the kind being made (branded or unbranded);
+    // a sheet of the other kind is never loaded into this one.
+    const unbranded = csRef.current.unbranded;
+    const restored = normalizeRevamp(saved.data);
+    if (restored.unbranded !== unbranded) return false;
+    const sheet = unbranded ? stripClientDetails(restored) : restored;
     // A sheet that names another client was saved while an old bug merged two clients: ignore it.
     // Loading the client's own data instead, then Save, replaces the bad copy.
     if (!sheetMatchesClient(sheet.clientName, [r.name, r.company?.name, r.campaign?.clientName, codeLetters(r.campaign?.campaignName)])) {
@@ -258,6 +273,14 @@ export function useCaseStudyEditor() {
     setShowImport(true);
   };
 
+  // An unbranded case study: the campaign's numbers only (lib/unbranded.ts). Starts at the import
+  // panel, like the main card; the mode stays on the sheet until Start over.
+  const startUnbranded = () => {
+    startBlank();
+    setCs({ ...EMPTY_REVAMP, unbranded: true });
+    setShowImport(true);
+  };
+
   /* ------------------------------- editor actions ------------------------------- */
 
   const markReviewed = () => {
@@ -268,6 +291,7 @@ export function useCaseStudyEditor() {
   };
 
   const printNow = () => {
+    if (exportBlocked) return; // the button is disabled too; Ctrl+P prints a notice instead (page.tsx)
     saveMappingExample();
     applyDynamicPageSize(pdfPageRef.current);
     document.title = pdfName; // set here too, not only on beforeprint: the button path never depends on event timing
@@ -305,15 +329,24 @@ export function useCaseStudyEditor() {
     keepTruthFinding: truth.keep,
     removeTruthFindings: truth.remove,
     dismissTruthCheck: truth.reset,
+    identityActive: identity.active,
+    identityFindings: identity.findings,
+    identityKeptCount: identity.keptCount,
+    keepIdentityFinding: identity.keep,
+    removeIdentityFindings: identity.remove,
+    exportBlocked,
     markReviewed,
     cmsState: cms.cmsState,
     cmsMsg: cms.cmsMsg,
     cmsLink: cms.cmsLink,
     hasCmsDraft: Boolean(cms.cmsPageIdRef.current),
-    sendToCms: cms.sendToCms,
+    sendToCms: () => {
+      if (!exportBlocked) void cms.sendToCms();
+    },
     requestExit,
     startBlank,
     startFromImport,
+    startUnbranded,
     handleFile,
     loadSaved,
     prepareSwitch,

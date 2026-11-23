@@ -8,6 +8,7 @@ import { normalizeRevamp, type RevampCaseStudy } from "@/lib/revamp";
 import { canonicalRecentKey, isLegacyRecentKey, recentKey } from "@/lib/recentKey";
 import { mergeRecentEntries, withCompany } from "@/lib/recentMerge";
 import { createServiceClient } from "@/lib/supabase/server";
+import { stripClientDetails } from "@/lib/unbranded";
 import type { StoredImport, TopCampaign, TopClientsSnapshot } from "@/lib/topClients";
 
 export type RecentClient = {
@@ -23,6 +24,10 @@ export type RecentClient = {
   // The finished sheet (AI text, edits, review state), saved as people work on this client, so
   // loading it again restores their text instead of drafting it anew.
   sheet?: SavedSheet | null;
+  // The client's unbranded case study (lib/unbranded.ts) is a separate document with its own
+  // sheet and CMS draft: saving or sending one never replaces the other.
+  unbrandedSheet?: SavedSheet | null;
+  unbrandedCmsDraft?: { id: number; editLink: string; at: string } | null;
 };
 
 export type SavedSheet = {
@@ -166,6 +171,8 @@ function cleanStored(hubspot: any, callboxone: any): StoredImport {
 }
 
 // Saves (or refreshes) a client after a live import. Returns its key, or null if nothing to save.
+// New numbers clear the saved sheet of the kind of case study being pulled (branded or unbranded);
+// the other kind's sheet and CMS draft stay as they were.
 export async function saveRecent(body: any): Promise<string | null> {
   if (JSON.stringify(body ?? {}).length > MAX_BYTES) throw new Error("Import too large to save.");
   const campaign = cleanCampaign(body?.campaign);
@@ -187,7 +194,10 @@ export async function saveRecent(body: any): Promise<string | null> {
     importedAt: new Date().toISOString(),
     imports: (before?.imports ?? 0) + 1,
     cmsDraft: before?.cmsDraft ?? null,
-    sheet: null, // new numbers: the next draft and edits save a new sheet
+    // New numbers: the next draft and edits save a new sheet.
+    sheet: body?.unbranded === true ? before?.sheet ?? null : null,
+    unbrandedSheet: body?.unbranded === true ? null : before?.unbrandedSheet ?? null,
+    unbrandedCmsDraft: before?.unbrandedCmsDraft ?? null,
   };
   const now = new Date().toISOString();
   const { error } = await db().from(TABLE).upsert({ key, cycle: now.slice(0, 10), status: "saved", payload: entry, updated_at: now });
@@ -207,8 +217,10 @@ export async function saveSheet(body: any): Promise<void> {
   const key = canonicalRecentKey(String(body?.key || ""));
   if (!key.startsWith(PREFIX)) throw new Error("Invalid key.");
   await ensureMerged();
+  const data = normalizeRevamp(body?.sheet);
   const sheet: SavedSheet = {
-    data: normalizeRevamp(body?.sheet),
+    // An unbranded sheet is stored without client details, whatever the browser sent.
+    data: data.unbranded ? stripClientDetails(data) : data,
     reviewed: body?.reviewed === true,
     aiDrafted: Array.isArray(body?.aiDrafted) ? body.aiDrafted.map((x: unknown) => str(x, 60)).filter(Boolean).slice(0, 60) : [],
     savedAt: new Date().toISOString(),
@@ -234,19 +246,23 @@ export async function saveSheet(body: any): Promise<void> {
   }
   // Saved before HubSpot matched this campaign: take the company now that it's known.
   entry = withCompany(entry, cleanCompany(body?.client));
-  entry.sheet = sheet;
+  if (sheet.data.unbranded) entry.unbrandedSheet = sheet;
+  else entry.sheet = sheet;
   const { error } = await db().from(TABLE).upsert({ key, cycle: sheet.savedAt.slice(0, 10), status: "saved", payload: entry, updated_at: sheet.savedAt });
   if (error) throw new Error(`Supabase: ${error.message}`);
 }
 
-// Records that a CMS draft was created from this client's import.
-export async function attachDraft(key: string, id: number, editLink: string) {
+// Records that a CMS draft was created from this client's import (its unbranded case study's, with
+// `unbranded`).
+export async function attachDraft(key: string, id: number, editLink: string, unbranded = false) {
   if (!key.startsWith(PREFIX) || !Number.isInteger(id) || id <= 0) return;
   await ensureMerged();
   key = canonicalRecentKey(key);
   const { data } = await db().from(TABLE).select("payload").eq("key", key).maybeSingle();
   if (!data) return;
   const entry = data.payload as RecentClient;
-  entry.cmsDraft = { id, editLink: str(editLink, 300), at: new Date().toISOString() };
+  const draft = { id, editLink: str(editLink, 300), at: new Date().toISOString() };
+  if (unbranded) entry.unbrandedCmsDraft = draft;
+  else entry.cmsDraft = draft;
   await db().from(TABLE).update({ payload: entry, updated_at: new Date().toISOString() }).eq("key", key);
 }
