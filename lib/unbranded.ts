@@ -73,8 +73,10 @@ export function unbrandedView<T extends { sheet?: unknown; cmsDraft: unknown; un
 // hit comes from typed or pasted text.
 export type IdentityTerm = { term: string; kind: string; caseSensitive?: boolean };
 
-// Never terms on their own: legal forms and words any case study uses.
-const COMMON = new Set([
+// Never terms on their own: legal forms and words any case study uses. Also used by the headline
+// check (lib/narrative.ts namesClient), so "Software" in "Smart Software" can still describe the
+// client's type in a headline.
+export const COMMON = new Set([
   "inc", "llc", "ltd", "pty", "plc", "gmbh", "corp", "corporation", "co", "group", "global", "holdings", "company",
   "companies", "solutions", "technologies", "technology", "tech", "systems", "services", "service", "international",
   "the", "and", "for", "callbox", "b2b", "marketing", "sales", "lead", "leads", "generation", "digital", "media",
