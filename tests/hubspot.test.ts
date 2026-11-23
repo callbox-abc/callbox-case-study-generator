@@ -168,7 +168,8 @@ describe("crmInUse", () => {
   it("keeps a named CRM and drops placeholders", () => {
     expect(crmInUse("Pipedrive")).toBe("Pipedrive");
     expect(crmInUse("  HubSpot  ")).toBe("HubSpot");
-    for (const v of ["None", "N/A", "na", "-", "unknown", "", null, undefined]) expect(crmInUse(v)).toBe("");
+    // "Others" is the dropdown's "some other CRM" option: it names nothing.
+    for (const v of ["None", "NONE", "Others", "other", "N/A", "na", "-", "unknown", "", null, undefined]) expect(crmInUse(v)).toBe("");
   });
 });
 

@@ -325,8 +325,10 @@ export function clientSinceFrom(rel: Pick<Relationship, "clientSince"> | null, e
   return { value: rel.clientSince, note: "" };
 }
 
-// The client's CRM, from Callbox's "CRM BEING USED" field. Placeholders mean "not known".
-const NO_CRM = /^(none|no|n\/?a|na|-+|unknown|not sure|tbd|no crm|nothing|null|other)$/i;
+// The client's CRM, from Callbox's "CRM BEING USED" field. Placeholders mean "not known". The
+// field is a dropdown whose options are NONE, a list of named CRMs, and "Others" (some other CRM,
+// not named), so "Others" is dropped too.
+const NO_CRM = /^(none|no|n\/?a|na|-+|unknown|not sure|tbd|no crm|nothing|null|others?)$/i;
 export function crmInUse(v: unknown): string {
   const t = String(v ?? "").replace(/\s+/g, " ").trim();
   return t && t.length <= 60 && !NO_CRM.test(t) ? t : "";

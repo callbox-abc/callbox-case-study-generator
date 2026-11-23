@@ -10,7 +10,7 @@
 //  4. Em dashes are removed (house style).
 
 import { comparablePeriods, type RevampCaseStudy, type TitledItem } from "@/lib/revamp";
-import { exportable } from "@/lib/unbranded";
+import { COMMON, exportable } from "@/lib/unbranded";
 
 export type NarrativeDraft = {
   headline?: string;
@@ -384,15 +384,22 @@ const GENERIC_HEADING = new RegExp(
 );
 
 // Case study headlines describe the client by type ("US-Based Cybersecurity Provider"), never by
-// name. True when the text contains a distinctive word of the client's name.
-const NAME_GENERIC = new Set([
-  "inc", "llc", "ltd", "corp", "co", "group", "global", "holdings", "company", "solutions", "technologies",
-  "technology", "systems", "services", "international", "the", "and",
-]);
-export function namesClient(text: string, clientName: string): boolean {
-  const toks = clientName.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !NAME_GENERIC.has(w));
+// name. True when the text contains a distinctive word of the client's name, or the whole name.
+// Words that only say what kind of company it is are not distinctive: the common business words
+// (lib/unbranded.ts COMMON, e.g. "software", "data", "cloud") and the words of the client's
+// industry (`typeWords`). So "Smart Software" is named by "Smart" or "Smart Software", while
+// "Singapore-Based Software Provider" describes it.
+const LEGAL_FORM = new Set(["inc", "llc", "ltd", "pty", "plc", "gmbh", "corp", "corporation", "co", "group", "holdings", "company", "the"]);
+export function namesClient(text: string, clientName: string, typeWords = ""): boolean {
+  const words = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const type = new Set(words(typeWords));
+  const name = words(clientName);
   const t = text.toLowerCase();
-  return toks.some((w) => new RegExp(`\\b${w}\\b`).test(t));
+  const has = (phrase: string[]) => new RegExp(`\\b${phrase.join("[^a-z0-9]+")}\\b`).test(t);
+  if (name.some((w) => w.length >= 3 && !COMMON.has(w) && !type.has(w) && has([w]))) return true;
+  // A name made only of type words ("Cloud Software Group") is still named by all of them together.
+  const core = name.filter((w) => !LEGAL_FORM.has(w));
+  return core.length >= 2 && has(core);
 }
 
 // "Callbox recommends two actions" must match the number of items actually kept.
@@ -470,8 +477,9 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
   if (tracked) totals.add(String(tracked));
   const apptStat = r.heroStats.find((x) => /appointment/i.test(x.label));
   if (apptStat) totals.add(norm(apptStat.value));
+  const industry = r.facts.find((f) => f.label.trim().toLowerCase() === "industry")?.value ?? "";
   const headlineIssue = (h: string): string => {
-    if (namesClient(h, r.clientName)) return "names the client";
+    if (namesClient(h, r.clientName, industry)) return "names the client";
     const nums = (h.match(NUM) || []).map(norm);
     const named = r.channels.rows.filter((x) => {
       const name = x.name.replace(/[^A-Za-z0-9]/g, "");

@@ -81,6 +81,25 @@ describe("namesClient", () => {
   it("ignores generic words in the client's name", () => {
     expect(namesClient("Global IT Provider Builds Pipeline", "Netrix Global")).toBe(false);
   });
+
+  // Made-up client. A headline describes the client by type, and the type word can be in its name.
+  it("lets a type word from the client's name describe it", () => {
+    expect(namesClient("Singapore-Based Software Provider Targets the Australian Market", "Brightway Software")).toBe(false);
+    expect(namesClient("Software Company Engages the Australian Market", "Brightway Software Pte Ltd")).toBe(false);
+    expect(namesClient("Brightway Opens the Australian Market", "Brightway Software")).toBe(true);
+    expect(namesClient("Brightway Software Opens the Australian Market", "Brightway Software")).toBe(true);
+  });
+
+  it("treats the client's industry words as type words", () => {
+    expect(namesClient("Payroll Provider Books 40 Meetings", "Kestrel Payroll", "")).toBe(true);
+    expect(namesClient("Payroll Provider Books 40 Meetings", "Kestrel Payroll", "Payroll services")).toBe(false);
+    expect(namesClient("Kestrel Books 40 Meetings", "Kestrel Payroll", "Payroll services")).toBe(true);
+  });
+
+  it("still catches a name made only of type words, as a whole", () => {
+    expect(namesClient("Cloud Data Provider Grows Pipeline", "Cloud Data Group")).toBe(true);
+    expect(namesClient("Cloud Provider Grows Pipeline", "Cloud Data Group")).toBe(false);
+  });
 });
 
 describe("matchItemCount", () => {
@@ -128,6 +147,14 @@ describe("mergeNarrative", () => {
     });
     expect(next.headline).toBe("US-Based Cybersecurity Provider Builds Qualified Pipeline With LinkedIn and Email");
     expect(droppedDetails.map((d) => d.reason)).toContain("names the client");
+  });
+
+  it("keeps a headline that describes the client by the type word in its name", () => {
+    const { next, droppedDetails } = mergeNarrative(sheet({ clientName: "Brightway Software" }), {
+      headline: "Singapore-Based Software Provider Builds Qualified Pipeline",
+    });
+    expect(next.headline).toBe("Singapore-Based Software Provider Builds Qualified Pipeline");
+    expect(droppedDetails.map((d) => d.reason)).not.toContain("names the client");
   });
 
   it("rejects a headline that credits every appointment to one channel", () => {

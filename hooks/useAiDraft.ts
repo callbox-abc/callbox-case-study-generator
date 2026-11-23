@@ -94,7 +94,9 @@ export function useAiDraft({
           ? `AI drafted ${drafted.length} field${drafted.length === 1 ? "" : "s"}${json.model ? ` with ${modelLabel(json.model)}` : ""}${
               json.fallbackReason ? " (the main model was unavailable, so the faster fallback wrote them)" : ""
             }. Review them before downloading or sending to the CMS.`
-          : "The AI had nothing it could ground in the data for the empty fields.") +
+          : dropped
+            ? "Nothing the AI wrote for the empty fields passed the checks."
+            : "The AI had nothing it could ground in the data for the empty fields.") +
           (drafted.includes("Role pressures")
             ? " The role pressures are inferred from the role and the data, not said by the client: confirm them with the CSM before publishing."
             : "") +

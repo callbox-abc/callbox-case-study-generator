@@ -834,7 +834,7 @@
     ],
     "banners": [
       "Truth data verified: 2 sentences in the text have numbers that aren't in the CallboxOne data, the source of truth. Remove them (the AI redrafts an emptied field from the data), or keep a number that isn't a campaign result.\nRemove all\nKeep all\nDek: “Callbox delivered 1,622 emails in the first quarter.” (not in CallboxOne: 1,622)\nRemove\nKeep\nSituation text: “Gamma runs a 40-person IT team.” (not in CallboxOne: 40)\nRemove\nKeep",
-      "The AI had nothing it could ground in the data for the empty fields. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed"
+      "Nothing the AI wrote for the empty fields passed the checks. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed"
     ],
     "dialog": null,
     "importPanel": true,
@@ -859,7 +859,7 @@
     ],
     "banners": [
       "Truth data verified: 1 sentence in the text has numbers that aren't in the CallboxOne data, the source of truth. Remove it (the AI redrafts an emptied field from the data), or keep a number that isn't a campaign result.\nKeep all\nDek: “Callbox delivered 1,622 emails in the first quarter.” (not in CallboxOne: 1,622)\nRemove\nKeep",
-      "The AI had nothing it could ground in the data for the empty fields. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed"
+      "Nothing the AI wrote for the empty fields passed the checks. The checks removed 1 sentence: “It added $1M.” (money claim).\nMark as reviewed"
     ],
     "dialog": null,
     "importPanel": true,

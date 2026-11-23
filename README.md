@@ -148,7 +148,9 @@ hand from the project's **Schedules** tab (**Run Schedule**). Do not add a `cron
     dropped, as are money claims and forecasts; the banner lists what was removed and why. Only the
     data counts: a number that is only in the sheet's existing text is not allowed, so the AI can't
     repeat a stale figure the truth check would flag;
-  - the headline is Title Case and never names the client; a headline that credits the whole
+  - the headline is Title Case and never names the client (a distinctive word of the name, or the
+    whole name; a type word such as "Software" in "Acme Software", or a word of the client's
+    industry, may still describe the client); a headline that credits the whole
     appointment total to one channel is rejected (a backup headline is tried);
   - generic section headings lose to a specific backup heading;
   - "appointments held" becomes "appointments" (only "first appointment transpired" counts meetings held);
