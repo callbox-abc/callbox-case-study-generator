@@ -69,6 +69,7 @@ const SYSTEM_INSTRUCTION = [
   "- progression.body: the shape over time (launch, low point, peak, partial period) using the quarter insights. Do not explain causes.",
   "- whatChanged.outcomes: 3 outcomes, each one sentence with a different number from the input.",
   "- whereNext.recommendations: 2-3 Callbox recommendations that follow from the data (title + 1-2 sentences), e.g. logging unlogged funnel stages or tracking appointments for untracked channels.",
+  "  If facts include \"CRM in use\", a recommendation about logging stages may name that CRM (e.g. \"log them in Salesforce\"). Use it nowhere else, and never name a CRM that isn't in the facts.",
   "- quarterNotes: one short note per quarter that describes its position (launch quarter, low point, peak, up or down from the previous quarter, still running) and must match the numbers. Do not restate the count; it is already shown.",
   "",
   "UNBRANDED CASE STUDIES (input.unbranded is true; these rules override the ones above):",

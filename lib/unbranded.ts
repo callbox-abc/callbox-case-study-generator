@@ -16,8 +16,9 @@ import type { RevampCaseStudy } from "@/lib/revamp";
 
 const key = (l: string) => l.trim().toLowerCase();
 
-// Facts about the client (HubSpot). Never on an unbranded case study.
-export const CLIENT_FACT_LABELS = ["industry", "headquarters", "company size", "client since", "program growth"];
+// Facts about the client (HubSpot). Never on an unbranded case study. ("CRM in use" is AI context,
+// never shown, but it is still the client's.)
+export const CLIENT_FACT_LABELS = ["industry", "headquarters", "company size", "client since", "program growth", "crm in use"];
 // Facts about the campaign (CallboxOne). The only imported facts an unbranded case study keeps.
 export const CAMPAIGN_FACT_LABELS = ["period measured", "market", "channels worked", "lists worked", "list sources"];
 

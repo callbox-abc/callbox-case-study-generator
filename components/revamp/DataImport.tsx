@@ -409,7 +409,10 @@ export default function DataImport({
             if (!d.primaryContact.role.trim()) d.primaryContact.role = pc.role;
             if (!d.primaryContact.eyebrow.trim()) d.primaryContact.eyebrow = "Callbox works with";
           }
-          d.internal = { extraFacts: d.internal?.extraFacts || [], leadSource: pc?.leadSource || "" };
+          // The client's CRM is AI context only (Where it goes next), never a shown fact.
+          const extra = (d.internal?.extraFacts || []).filter((f) => f.label.trim().toLowerCase() !== "crm in use");
+          if (prof.company.crm) extra.push({ label: "CRM in use", value: prof.company.crm });
+          d.internal = { extraFacts: extra, leadSource: pc?.leadSource || "" };
         });
         firstWon = prof.relationship?.firstWon ?? null;
         const kept: string[] = [];
