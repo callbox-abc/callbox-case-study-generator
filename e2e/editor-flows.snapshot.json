@@ -1161,5 +1161,144 @@
     "dek": null,
     "client": null,
     "calls": []
+  },
+  {
+    "step": "K1. clicking the search box opens the active clients",
+    "stage": "editor",
+    "title": "Callbox Case Study Generator",
+    "toolbar": [
+      "← Start over",
+      "Copy text",
+      "Hide import",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "",
+    "dek": "",
+    "client": "",
+    "calls": [
+      {
+        "method": "POST",
+        "path": "/api/hubspot",
+        "step": "active"
+      }
+    ],
+    "dropdown": {
+      "header": "Active clients · Lead Status “Active Client” in HubSpot · 12, type to filter",
+      "options": [
+        "Alpha Analytics",
+        "Bravo Health",
+        "Charlie Cloud",
+        "Delta Freight",
+        "Echo Labs",
+        "Foxtrot Finance",
+        "Golf Media",
+        "Hotel Logistics",
+        "India Robotics",
+        "Juliet Retail"
+      ]
+    }
+  },
+  {
+    "step": "K2. typing filters all active clients",
+    "stage": "editor",
+    "title": "Callbox Case Study Generator",
+    "toolbar": [
+      "← Start over",
+      "Copy text",
+      "Hide import",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "",
+    "dek": "",
+    "client": "",
+    "calls": [],
+    "dropdown": {
+      "header": "Active clients · 1 of 12 match",
+      "options": [
+        "Kilo Systems"
+      ]
+    }
+  },
+  {
+    "step": "K3. picked with the keyboard: searched, the exact record preselected",
+    "stage": "editor",
+    "title": "Callbox Case Study Generator",
+    "toolbar": [
+      "← Start over",
+      "Copy text",
+      "Hide import",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "",
+    "dek": "",
+    "client": "",
+    "calls": [
+      {
+        "method": "GET",
+        "path": "/api/callboxone/search",
+        "q": "Kilo Systems"
+      },
+      {
+        "method": "GET",
+        "path": "/api/callboxone/search",
+        "q": "Kilo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/hubspot",
+        "step": "search",
+        "q": "Kilo Systems"
+      }
+    ],
+    "dropdown": null,
+    "boxValue": "Kilo Systems",
+    "picked": [
+      "Kilo Systems · kilo.example · Austin, Texas, United States11 deals · first deal created 2025-01"
+    ]
+  },
+  {
+    "step": "K4. Escape closes the list",
+    "stage": "editor",
+    "title": "Callbox Case Study Generator",
+    "toolbar": [
+      "← Start over",
+      "Copy text",
+      "Hide import",
+      "Send to CMS as draft",
+      "Download PDF"
+    ],
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": "",
+    "dek": "",
+    "client": "",
+    "calls": [],
+    "dropdown": null
+  },
+  {
+    "step": "K5. back on the start screen",
+    "stage": "start",
+    "title": "Callbox Case Study Generator",
+    "toolbar": null,
+    "banners": [],
+    "dialog": null,
+    "importPanel": true,
+    "headline": null,
+    "dek": null,
+    "client": null,
+    "calls": []
   }
 ]

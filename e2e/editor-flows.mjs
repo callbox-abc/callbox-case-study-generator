@@ -122,6 +122,14 @@ const TOP_SNAPSHOT = {
   ],
 };
 
+// The search box's dropdown: 12 made-up active clients (HubSpot Lead Status "Active Client").
+const ACTIVE = ["Alpha Analytics", "Bravo Health", "Charlie Cloud", "Delta Freight", "Echo Labs", "Foxtrot Finance", "Golf Media", "Hotel Logistics", "India Robotics", "Juliet Retail", "Kilo Systems", "Lima Energy"].map(
+  (name, i) => ({ companyId: String(9900 + i), name, domain: `${name.split(" ")[0].toLowerCase()}.example`, location: "Austin, Texas, United States", deals: i + 1, firstDeal: "2025-01" })
+);
+const KILO = ACTIVE.find((c) => c.name === "Kilo Systems");
+// A second HubSpot record with the same name (another office), returned by the name search too.
+const KILO_OTHER = { ...KILO, companyId: "9990", domain: "kilo-eu.example", location: "Berlin, Germany", deals: 2 };
+
 // Answers one intercepted request; logs the ones the editor sends on its own.
 function mockApi(url, method, body, calls) {
   const u = new URL(url);
@@ -130,6 +138,18 @@ function mockApi(url, method, body, calls) {
   const b = body ? JSON.parse(body) : null;
   const log = (detail) => calls.push({ method, path: p + (step ? `?step=${step}` : ""), ...detail });
   if (p === "/api/top-clients") return { snapshot: TOP_SNAPSHOT, job: null };
+  if (p === "/api/hubspot" && b?.step === "active") {
+    log({ step: "active" });
+    return { clients: ACTIVE, refreshedAt: "2026-11-23T00:00:00Z" };
+  }
+  if (p === "/api/hubspot" && b?.step === "search") {
+    log({ step: "search", q: b.q });
+    return { clients: /kilo/i.test(b.q) ? [KILO_OTHER, KILO] : [] };
+  }
+  if (p === "/api/callboxone/search") {
+    log({ q: u.searchParams.get("q") });
+    return { campaigns: [] };
+  }
   if (p === "/api/recent-clients" && method === "GET") return u.searchParams.get("key") ? { entry: null } : { recent: RECENT };
   // Unbranded requests also log whether they carry any of Delta's details.
   const unb = (sheet) => (sheet?.unbranded ? { unbranded: true, leaks: deltaLeaks(sheet) } : {});
@@ -619,6 +639,47 @@ export async function runEditorFlows({ cdp, appUrl, user, pass, cpuSlowdown = 1,
   if (await dialogOpen()) await click(/Exit without saving/);
   await waitFor(onStart, "the start screen");
   await record("J8. back on the start screen");
+
+  /* ---------------- K. search box: dropdown of active clients ---------------- */
+  const box = `document.getElementById('import-search')`;
+  const dropdown = () =>
+    cdp.evaluate(`(() => {
+      const list = document.querySelector('[role=listbox]');
+      return list ? { header: list.firstElementChild.innerText.trim(), options: [...list.querySelectorAll('[role=option]')].map(o => o.innerText.split('\\n')[0].trim()) } : null;
+    })()`);
+  const key = (k) => cdp.evaluate(`${box}.dispatchEvent(new KeyboardEvent('keydown', { key: ${js(k)}, bubbles: true }))`);
+  const typeInBox = (v) =>
+    cdp.evaluate(`(() => { const el = ${box}; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${js(v)}); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  await fromImport();
+  await cdp.evaluate(`${box}.click()`);
+  await waitFor(page(`[...document.querySelectorAll('[role=option]')].length > 0`), "the active clients");
+  s = await record("K1. clicking the search box opens the active clients", { dropdown: await dropdown() });
+  check("the dropdown shows 10 active clients, most recent first", s.dropdown?.options.length === 10 && s.dropdown.options[0] === "Alpha Analytics", js(s.dropdown));
+  check("it says where they come from and how many there are", /Lead Status “Active Client” in HubSpot · 12, type to filter/.test(s.dropdown?.header || ""), s.dropdown?.header);
+  check("the list is loaded from HubSpot once", callsOf(s, /\/api\/hubspot/).length === 1);
+  await typeInBox("kilo");
+  await waitFor(async () => (await dropdown())?.options.length === 1, "the filtered list");
+  s = await record("K2. typing filters all active clients", { dropdown: await dropdown() });
+  check("typing filters all of them, not just the 10 shown", js(s.dropdown?.options) === js(["Kilo Systems"]) && /1 of 12 match/.test(s.dropdown?.header || ""), js(s.dropdown));
+  await key("ArrowDown");
+  await key("Enter");
+  await waitFor(sent(/\/api\/hubspot/), "the search");
+  await waitFor(shows(/Import HubSpot/), "the search results");
+  const picked = await cdp.evaluate(
+    `[...document.querySelectorAll('button')].filter(b => b.style.borderColor === 'rgb(245, 185, 20)' && /deal/.test(b.textContent)).map(b => b.textContent)`
+  );
+  s = await record("K3. picked with the keyboard: searched, the exact record preselected", { dropdown: await dropdown(), boxValue: await cdp.evaluate(`${box}.value`), picked });
+  check("picking fills the box, closes the list and searches both sources", s.boxValue === "Kilo Systems" && s.dropdown === null && callsOf(s, /\/api\/hubspot/)[0]?.q === "Kilo Systems" && callsOf(s, /callboxone\/search/).length >= 1, js({ box: s.boxValue, calls: s.calls }));
+  check("the picked HubSpot record is preselected, not its same-name twin", picked.length === 1 && /kilo\.example/.test(picked[0]) && !/kilo-eu/.test(picked[0]), js(picked));
+  await cdp.evaluate(`${box}.click()`);
+  await waitFor(async () => (await dropdown()) !== null, "the list to open");
+  await key("Escape");
+  s = await record("K4. Escape closes the list", { dropdown: await dropdown() });
+  check("Escape closes the list", s.dropdown === null);
+  await startOver();
+  if (await dialogOpen()) await click(/Exit without saving/);
+  await waitFor(onStart, "the start screen");
+  await record("K5. back on the start screen");
 
   check("no requests to unmocked APIs", !steps.some((st) => st.calls.some((c) => c.unmocked)));
   check("no errors in the page", errors.length === 0, errors.join(" | "));

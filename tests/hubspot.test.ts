@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import { seniorityOf } from "@/lib/callboxone";
-import { groundSolutionLines, normalizeCountry, normalizeJobTitle, relationshipFrom, seatsInDealName } from "@/lib/hubspot";
+import { groundSolutionLines, headquarters, normalizeCountry, normalizeJobTitle, relationshipFrom, seatsInDealName } from "@/lib/hubspot";
 
 describe("seatsInDealName", () => {
   it("reads an explicit seat count", () => {
@@ -107,5 +107,23 @@ describe("seniorityOf (appointment job titles)", () => {
 
   it("does not read 'Office of the CEO' as a CEO", () => {
     expect(seniorityOf("Office of the CEO Assistant")).toBe("lvlOther");
+  });
+});
+
+// HubSpot records often repeat a place across city, state and country (seen on live records:
+// "..., Australia, Australia" and "Singapore, Singapore, Singapore").
+describe("headquarters", () => {
+  it("writes each part once", () => {
+    expect(headquarters({ city: "Sydney", state: "NSW, Australia", country: "Australia" })).toBe("Sydney, NSW, Australia");
+    expect(headquarters({ city: "Singapore", state: "Singapore", country: "SG" })).toBe("Singapore");
+  });
+
+  it("spells out US states and country codes", () => {
+    expect(headquarters({ city: "Austin", state: "TX", country: "USA" })).toBe("Austin, Texas, United States");
+    expect(headquarters({ city: "Seoul", country: "KR" })).toBe("Seoul, South Korea");
+  });
+
+  it("is empty when nothing is on record", () => {
+    expect(headquarters({})).toBe("");
   });
 });
