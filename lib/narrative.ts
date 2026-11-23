@@ -424,8 +424,10 @@ export function mergeNarrative(r: RevampCaseStudy, draft: NarrativeDraft) {
   const dropped: Drops = { n: 0, items: [] };
   const drafted: string[] = [];
   // Proper words from the client's own name stay capitalized in sentence-case headings.
+  // So is the client's CRM ("Log every stage in Salesforce").
+  const crm = (r.internal?.extraFacts ?? []).find((f) => f.label.trim().toLowerCase() === "crm in use")?.value ?? "";
   const keep = new Set(
-    [r.clientName, r.solutionLines, r.country].join(" ").toLowerCase().split(/[^a-z]+/).filter(Boolean)
+    [r.clientName, r.solutionLines, r.country, crm].join(" ").toLowerCase().split(/[^a-z]+/).filter(Boolean)
   );
   // Body text: number guard, then filler words, then unsupported quality claims.
   const g = (t: unknown) => dropVague(plainWords(guardText(String(t ?? ""), allowed, dropped)), dropped);
