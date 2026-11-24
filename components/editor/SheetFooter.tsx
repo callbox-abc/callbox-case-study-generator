@@ -11,7 +11,7 @@ const FOOTER_CALL_COLS = [
     { country: "Europe", number: "+44 (207) 442 5066" },
   ],
   [
-    { country: "Singapore", number: "+65 3159 1112" },
+    { country: "Singapore", number: "+65 6817 8656" },
     { country: "Australia", number: "+61 (02) 9037 2248" },
     { country: "Hong Kong", number: "+852 3678 6708" },
     { country: "New Zealand", number: "+64 9914 3122" },
